@@ -36,6 +36,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations ./migrations
+COPY configs ./configs
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \

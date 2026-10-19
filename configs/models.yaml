@@ -1,0 +1,65 @@
+# Model registry (TRD §3, §S3) — the ONLY place model strings may appear.
+#
+# kind:        chat | embedding  -> callable through receipt_extractor.llm (LiteLLM)
+#              local | offline   -> listed for completeness (Donut on CPU, Qwen on Kaggle);
+#                                   the LLM layer refuses to call them.
+# data_policy: any | public_only -> public_only aliases accept only requests whose
+#                                   data_origin is "public_dataset" or "synthetic" (never user
+#                                   uploads). Gemini free-tier traffic may be used by Google.
+# limits:      free-plan limits per alias (requests/tokens per minute and per day). The layer
+#              paces itself with these so a sweep pauses instead of hitting 429s.
+#              Re-check them in the provider console before a sweep; record changes in WORKLOG.
+version: 1
+models:
+  groq-oss-20b:
+    provider: groq
+    kind: chat
+    model: groq/openai/gpt-oss-20b
+    context_window: 131072
+    max_output_tokens: 65536
+    data_policy: any
+    limits: { rpm: 30, tpm: 8000, rpd: 1000, tpd: 200000 }
+    limits_checked: 2026-10-19
+    source: https://console.groq.com/docs/rate-limits
+
+  groq-oss-120b:
+    provider: groq
+    kind: chat
+    model: groq/openai/gpt-oss-120b
+    context_window: 131072
+    max_output_tokens: 65536
+    data_policy: any
+    limits: { rpm: 30, tpm: 8000, rpd: 1000, tpd: 200000 }
+    limits_checked: 2026-10-19
+    source: https://console.groq.com/docs/rate-limits
+
+  # Newest stable free-tier Flash model on 2026-10-19 (pinned; see WORKLOG M0.3).
+  # Google publishes free-tier limits per project in AI Studio only. The RPD below is the
+  # conservative figure reported for this model; confirm it at
+  # https://aistudio.google.com/rate-limit and raise it here if your project allows more.
+  gemini-flash:
+    provider: gemini
+    kind: chat
+    model: gemini/gemini-3.8-flash
+    data_policy: public_only
+    limits: { rpm: 5, tpm: 250000, rpd: 20 }
+    limits_checked: 2026-10-19
+    source: https://ai.google.dev/gemini-api/docs/rate-limits
+
+  # Local embeddings via Ollama (CPU, no data leaves the machine). Not used by a pipeline
+  # yet; it backs embed() and its live smoke test. `ollama pull nomic-embed-text` first.
+  ollama-embed:
+    provider: ollama
+    kind: embedding
+    model: ollama/nomic-embed-text
+    data_policy: any
+
+  donut-cord:
+    provider: local
+    kind: local
+    model: naver-clova-ix/donut-base-finetuned-cord-v2
+
+  qwen-vl-3b:
+    provider: kaggle
+    kind: offline
+    model: Qwen/Qwen2.5-VL-3B-Instruct

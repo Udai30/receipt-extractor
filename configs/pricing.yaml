@@ -1,0 +1,44 @@
+# Dated list prices (TRD §S3, §S5), keyed by the LiteLLM model string from models.yaml.
+#
+# Prices are USD per 1M tokens on the provider's paid tier. This project only uses free tiers,
+# so actual spend is $0; these prices give the comparable "list cost" in reports.
+# Quote every price as a string: money is Decimal, never float (CLAUDE.md §5).
+#
+# Each model has a list of entries; the entry in force on a call's (UTC) date is the latest one
+# whose effective_from is on or before that date. Dates before the first entry use the first.
+version: 1
+currency: USD
+models:
+  groq/openai/gpt-oss-20b:
+    - effective_from: 2026-10-19
+      input_per_mtok: "0.075"
+      output_per_mtok: "0.30"
+      source: https://console.groq.com/docs/models
+      checked: 2026-10-19
+
+  groq/openai/gpt-oss-120b:
+    - effective_from: 2026-10-19
+      input_per_mtok: "0.15"
+      output_per_mtok: "0.60"
+      source: https://console.groq.com/docs/models
+      checked: 2026-10-19
+
+  gemini/gemini-3.8-flash:
+    - effective_from: 2026-10-19
+      input_per_mtok: "0.75"
+      output_per_mtok: "3.75"
+      source: https://ai.google.dev/gemini-api/docs/pricing
+      checked: 2026-10-19
+    # Announced on the pricing page: rises on 2027-01-01.
+    - effective_from: 2027-01-01
+      input_per_mtok: "1.50"
+      output_per_mtok: "7.50"
+      source: https://ai.google.dev/gemini-api/docs/pricing
+      checked: 2026-10-19
+
+  ollama/nomic-embed-text:
+    - effective_from: 2026-10-19
+      input_per_mtok: "0"
+      output_per_mtok: "0"
+      source: local (Ollama)
+      checked: 2026-10-19

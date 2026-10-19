@@ -10,6 +10,7 @@ is needed; it validates once per process and fails fast with :class:`ConfigError
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, SecretStr, ValidationError
@@ -45,6 +46,14 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
     hf_token: SecretStr | None = None
+
+    # LLM provider layer (TRD §S3). Relative paths resolve against the working directory.
+    llm_models_path: Path = Path("configs/models.yaml")
+    llm_pricing_path: Path = Path("configs/pricing.yaml")
+    llm_cache_dir: Path = Path(".cache/llm")
+    llm_budget_path: Path = Path(".cache/llm_budget.json")
+    llm_max_concurrency: int = Field(default=4, ge=1, le=64)
+    llm_timeout_s: float = Field(default=60.0, gt=0, le=600)
 
     # Local services
     ollama_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:11434")

@@ -30,11 +30,83 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M0.2 — done · next: M0.3 |
-| Last verified gate run | 2026-10-19 — ruff, ruff format, mypy --strict, pytest (43 passed incl. 16 testcontainers integration), pip-audit: all green |
+| Current task | M0.3 — done (live `llm ping` awaits API keys) · next: M0.4 |
+| Last verified gate run | 2026-10-19 — ruff, ruff format, mypy --strict, pytest (144 passed incl. 18 testcontainers integration; 4 opt-in live tests skipped), pip-audit: all green |
 | Pending human actions | compose DB migrated to `0001_baseline` (2026-10-19); others: see the entries below |
 
 ---
+
+## 2026-10-19 — M0.3 · LLM provider layer (cache, rate limits, retries, accounting)
+
+**Done:**
+- Verified M0.1 (and M0.2, needed for the DB sink) in the repo before starting; reused `config.Settings`/`get_settings`, the CLI app, `db.models.LLMCall`, `db.repositories.add_llm_calls` and the session factory.
+- Deps: `litellm` 1.106.0, `pyyaml` 6.0.3 (runtime); `types-pyyaml` (dev). LiteLLM is imported lazily (≈ 12 s import) with `LITELLM_LOCAL_MODEL_COST_MAP=True`, so importing the package or running `--help` never imports it or touches the network (tested in a subprocess; `--help` takes 0.9 s).
+- `configs/models.yaml`: aliases `groq-oss-20b`, `groq-oss-120b` (30 RPM / 8K TPM / 1K RPD / 200K TPD), `gemini-flash` → **`gemini/gemini-3.8-flash`** (pinned; `public_only`; 5 RPM / 250K TPM / 20 RPD, conservative), `ollama-embed` (local `nomic-embed-text`), plus `donut-cord` / `qwen-vl-3b` as non-callable `local`/`offline` entries. Validated strictly (provider/kind consistency, the LiteLLM prefix must match the provider, alias shape).
+- `configs/pricing.yaml`: dated list prices per LiteLLM model string, quoted as strings (floats are rejected). gpt-oss-20b $0.075/$0.30, gpt-oss-120b $0.15/$0.60, gemini-3.8-flash $0.75/$3.75 until 2026-12-31 then $1.50/$7.50 from 2027-01-01 (announced), Ollama $0. Sources: console.groq.com/docs/models and ai.google.dev/gemini-api/docs/pricing, checked 2026-10-19.
+- The `llm/` package:
+  - `types.py`: `LLMRequest`/`LLMResponse`/`EmbedRequest`/`EmbedResponse`, text and inline image parts, `CallTags`, `LLMCallRecord`.
+  - `registry.py`: model registry, price table, `check_pricing_covers`.
+  - `cache.py`: SHA-256 key over model string + messages + params + schema, `<key[:2]>/<key>.json`, atomic writes, corrupt entries are misses.
+  - `limits.py`: token-bucket RPM/TPM limiter, persisted UTC-day RPD/TPD budget.
+  - `retry.py`: equal-jitter backoff, `Retry-After` parsing.
+  - `errors.py`: exception hierarchy and sanitiser.
+  - `providers.py`: provider protocol, LiteLLM adapter, exception mapping.
+  - `fake.py`: `FakeProvider`, which simulates latency, 429 + Retry-After, 5xx, timeout, hang, 400, and any reply text including invalid JSON.
+  - `sinks.py`: `JSONLSink`, `DatabaseSink`, `MemorySink`.
+  - `client.py`: `LLMClient.complete`/`embed`, `build_client`.
+- Structured output: the `response_model`'s JSON schema is sent as `response_format`, and the reply is validated with Pydantic (code fences are tolerated). On failure there is exactly one repair call with the validation problems appended. `schema_valid` reflects the final outcome.
+- CLI: `receipt_extractor llm ping --model <alias>` prints alias, model, tokens, latency, list cost, actual cost, retries and a reply preview. Embedding aliases work too. It uses no cache but does track the budget; errors print one sanitised line and exit 1.
+- Settings/env: `LLM_MODELS_PATH`, `LLM_PRICING_PATH`, `LLM_CACHE_DIR`, `LLM_BUDGET_PATH`, `LLM_MAX_CONCURRENCY` (1–64, default 4) and `LLM_TIMEOUT_S` (default 60), in `config.py` and `.env.example`. The Dockerfile copies `configs/` into the runtime image.
+- Tests (offline, using FakeProvider and a simulated clock):
+  - `tests/unit/test_llm_client.py`:
+    - Cache: a hit returns an identical response without calling the provider. The key covers params, schema and image bytes, but not tags. A failed repair is not cached.
+    - Retries: 429 then success records 1 retry and honours Retry-After. 5 consecutive failures raise `RetriesExhaustedError` after 4 jittered backoffs and write an error record. A 400 is not retried. A huge Retry-After fails fast. The hard timeout cancels a hung call.
+    - Structured output: invalid JSON → repair → `schema_valid` true or false.
+    - Accounting and policy: cost = tokens × dated price; data-origin guard; missing key.
+    - Limits: bounded concurrency; RPM limiter; daily budget; embeddings.
+  - `tests/unit/test_llm_components.py`: config validation (including rejecting `!!python/object`), dated pricing, float prices rejected, cache key/traversal/corruption, token bucket, budget persistence and day rollover, retry math, Retry-After parsing, sanitising, JSONL sink.
+  - `tests/unit/test_llm_providers.py`: LiteLLM request shape and response parsing; real LiteLLM exception classes mapped to ours; no exception chaining; Gemini `?key=` redaction; litellm not imported on package import.
+  - `tests/unit/test_cli_llm.py`: ping output, embedding ping, missing key, unknown alias, provider error, config error.
+  - `tests/integration/test_llm_db_sink.py`: row written to a fresh migrated testcontainers DB; an FK failure is logged, not raised.
+  - `tests/live/test_llm_live.py`: `@pytest.mark.live`.
+- Verification evidence:
+  - Gates: `ruff check` ✔, `ruff format --check` ✔, `mypy src` (strict) ✔, `pip-audit` no known vulnerabilities.
+  - `pytest -q`: **144 passed, 4 skipped** (the skips are the opt-in live tests). Integration tests ran against real containers. Coverage 96 % total (91–98 % per `llm/` module).
+  - Real CLI: `llm ping --model groq-oss-20b` without a key → `error: GROQ_API_KEY is not set; alias 'groq-oss-20b' needs it` (exit 1); `--model donut-cord` is refused as a local model.
+  - Real LiteLLM→Groq round trip with a deliberately invalid key (fixed "pong" prompt only): Groq's `invalid_api_key` was mapped to a non-retryable error with no retries, and the key was absent from the output.
+- Security:
+  - Keys come only from Settings and are passed per call (never via env to LiteLLM). They are excluded from dataclass `repr`.
+  - Every `LLMError` message is sanitised on construction (exact keys; `Bearer`; `key=`/`api_key=`; `gsk_`/`AIza`/`sk-`/`hf_` shapes; control characters) and truncated to 300 characters.
+  - Provider exceptions are re-raised `from None`, so no chained LiteLLM exception carries URLs.
+  - Records hold no prompts or outputs. The DB sink logs only the exception type.
+  - YAML is read with `safe_load` and capped at 1 MB. Cache keys are validated as hex (no path traversal), and the JSONL `run_id` is validated.
+  - Gemini refuses `user_upload` content before any network call; the default origin is `user_upload`.
+  - LiteLLM: `drop_params=True`, debug info suppressed, telemetry off, its own retries disabled.
+- Performance:
+  - The limiter sleeps exactly the computed deficit under a FIFO lock, with no busy-waiting. Tested with a fake clock: the 3rd call at 2 RPM triggers a single 30 s sleep.
+  - A global `asyncio.Semaphore` bounds concurrent provider calls (tested: peak 2 of 8).
+  - A cache lookup is one path computation plus one file read. File I/O runs in `asyncio.to_thread`.
+  - The timeout covers only the provider call, not the semaphore wait.
+
+**Files:** `pyproject.toml`, `uv.lock`, `configs/models.yaml`, `configs/pricing.yaml`, `src/receipt_extractor/llm/{__init__,types,registry,errors,cache,limits,retry,providers,fake,sinks,client}.py`, `src/receipt_extractor/config.py`, `src/receipt_extractor/cli.py`, `.env.example`, `Dockerfile`, `tests/conftest.py` (live opt-in), `tests/unit/conftest.py`, `tests/unit/test_{llm_client,llm_components,llm_providers,cli_llm,cli}.py`, `tests/integration/test_llm_db_sink.py`, `tests/live/{__init__,test_llm_live}.py`, `TRD.md` (§3, §S3 implementation notes, §S6), `BACKEND_SCHEMA.md` (§S5), `WORKLOG.md`.
+
+**Decisions:**
+- The Gemini alias is pinned to `gemini-3.8-flash`, the newest stable free-tier Flash model listed on 2026-10-19. Google publishes free-tier limits only per project in AI Studio. RPD 20 is the figure reported for this model; it stays as the safe default until the human confirms the real limit.
+- Live tests are opt-in (`-m live`) and also skip without keys. Otherwise, with keys in `.env`, a plain `pytest -q` would spend free-tier quota and make the gate depend on the network.
+- One record per provider call (a repair is its own record), not one per `complete()`. This matches the pipeline protocol's `llm_calls: list[str]` and keeps per-call tokens and latency honest. Cache-hit records keep tokens and list cost, so a pipeline's cost stays comparable across reruns, but their latency is the lookup time.
+- Added `ollama-embed` (local) so `embed()` has a callable alias; documented in TRD §3. No pipeline needs embeddings yet.
+- A failed repair call returns the invalid first reply with `schema_valid = false` instead of raising, and the result is not cached. The error is still recorded.
+- `actual_cost_usd` is in the JSONL record and `LLMResponse`, but not in the `llm_call` table: the schema has no column for it, and it is always 0. No migration is needed.
+- The DB sink swallows DB errors, because live requests must not fail on accounting. The JSONL sink propagates them, because an eval run must not continue without accounting.
+- Not committed: this task's prompt says the user handles Git, which overrides the "push after each task" preference here.
+
+**Open:**
+- Human action (acceptance criterion with real keys): put `GROQ_API_KEY` and `GEMINI_API_KEY` in `.env`, then run `uv run receipt_extractor llm ping --model groq-oss-20b`, `--model groq-oss-120b` and `--model gemini-flash`. Optionally also run `uv run pytest -m live -ra`. Expect tokens, latency and a non-zero list cost. **Not verified by the agent: no keys are configured.**
+- Human action: confirm the free-tier limits for `gemini-3.8-flash` at https://aistudio.google.com/rate-limit. If your project allows more than 5 RPM / 20 RPD, update `configs/models.yaml`. Re-check the Groq limits in the console before sweeps.
+- Optional: `ollama pull nomic-embed-text` makes `llm ping --model ollama-embed` and the live embedding test work.
+- Follow-up (M0.5/M4.1): the `api` container's root filesystem is read-only. Live traffic uses `cache=False`, but the budget file defaults to `.cache/llm_budget.json`. When wiring `/extract`, point `LLM_BUDGET_PATH` at a tmpfs or volume, or build the live client with `budget=False`.
+- Follow-up (M0.4): the runner should treat `BudgetExhaustedError` as "pause, resume later", and build its client with `cache=True` and `JSONLSink.for_run(...)`.
+- Note: gpt-oss models spend output tokens on reasoning, so `llm ping` uses `max_tokens=512` to make sure a reply is produced. Pipelines should size `max_tokens` with that in mind; `max_tokens` is also reserved against TPM before the call and refunded afterwards.
 
 ## 2026-10-19 — M0.2 · Docker Compose, Postgres/pgvector and baseline migration
 

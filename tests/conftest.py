@@ -29,6 +29,17 @@ PROJECT_ROOT: Final = Path(__file__).resolve().parents[1]
 PGVECTOR_IMAGE: Final = "pgvector/pgvector:pg16"
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Live tests spend free-tier quota and need the network: run them only when selected
+    explicitly with ``-m live`` (they still skip individually when a key is missing)."""
+    if "live" in (config.getoption("markexpr", "") or ""):
+        return
+    skip = pytest.mark.skip(reason="live provider test; run with `uv run pytest -m live`")
+    for item in items:
+        if item.get_closest_marker("live"):
+            item.add_marker(skip)
+
+
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[pytest.MonkeyPatch]:
     """Isolate a test from the developer's real environment and ``.env`` file.

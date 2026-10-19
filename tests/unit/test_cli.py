@@ -14,11 +14,11 @@ runner = CliRunner()
 def test_help_lists_command_groups(clean_env: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0, result.output
-    for group in ("data", "eval", "ingest", "report"):
+    for group in ("data", "eval", "ingest", "report", "llm"):
         assert group in result.output
 
 
-@pytest.mark.parametrize("group", ["data", "eval", "ingest", "report"])
+@pytest.mark.parametrize("group", ["data", "eval", "ingest", "report", "llm"])
 def test_each_group_has_help(clean_env: pytest.MonkeyPatch, group: str) -> None:
     result = runner.invoke(app, [group, "--help"])
     assert result.exit_code == 0, result.output

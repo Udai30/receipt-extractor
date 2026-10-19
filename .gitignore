@@ -23,6 +23,10 @@ dist/
 htmlcov/
 coverage.xml
 
+# graphify knowledge graph — local only: it embeds content of the local-only planning docs
+graphify-out/
+*.graphify-bak
+
 # Notebooks
 .ipynb_checkpoints/
 
@@ -44,4 +48,4 @@ BACKEND_SCHEMA.md
 IMPLEMENTATION_PLAN.md
 IMPLEMENTATION_PROMPTS.md
 PROMPT_PLAYBOOK.md
-CLAUDE.md
+

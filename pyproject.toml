@@ -37,7 +37,8 @@ line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
 # *.md: specification documents are prose; their code blocks are illustrative.
-extend-exclude = ["migrations/versions", "*.md"]
+# .claude/: agent tooling (git guard hook), not project source; edit-locked for the agent.
+extend-exclude = ["migrations/versions", "*.md", ".claude"]
 
 [tool.ruff.lint]
 select = [

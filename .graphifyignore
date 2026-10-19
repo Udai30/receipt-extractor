@@ -1,0 +1,20 @@
+# Paths graphify skips (in addition to .gitignore).
+# Environments, caches and generated artefacts — large and meaningless as graph nodes.
+.venv/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+runs/
+graphify-out/
+uv.lock
+
+# Datasets / model weights / images (CORD is downloaded into data/, but guard anyway)
+*.parquet
+*.safetensors
+*.bin
+*.onnx
+*.png
+*.jpg
+*.jpeg

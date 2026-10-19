@@ -1,0 +1,47 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data, run artefacts, caches (populated by CLI commands, never committed)
+data/
+runs/
+.cache/
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Node (not used in this project; guard anyway)
+node_modules/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Initial planning documents (local only)
+PRD.md
+TRD.md
+APPFLOW.md
+UI_UX_DESIGN.md
+BACKEND_SCHEMA.md
+IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PROMPTS.md
+PROMPT_PLAYBOOK.md
+CLAUDE.md

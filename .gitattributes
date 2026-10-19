@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.parquet binary
+*.ipynb text eol=lf

@@ -30,11 +30,56 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M0.1 — done · next: M0.2 |
-| Last verified gate run | 2026-10-19 — ruff, ruff format, mypy --strict, pytest (15 passed), pip-audit: all green |
-| Pending human actions | see the entries below |
+| Current task | M0.2 — done · next: M0.3 |
+| Last verified gate run | 2026-10-19 — ruff, ruff format, mypy --strict, pytest (43 passed incl. 16 testcontainers integration), pip-audit: all green |
+| Pending human actions | compose DB migrated to `0001_baseline` (2026-10-19); others: see the entries below |
 
 ---
+
+## 2026-10-19 — M0.2 · Docker Compose, Postgres/pgvector and baseline migration
+
+**Done:**
+- Verified M0.1 was complete in the repo (package layout, `config.Settings`, CLI, gates) before starting; reused `Settings`/`get_settings`.
+- Deps: `sqlalchemy[asyncio]` 2.1.5, `asyncpg` 0.32.0, `alembic` 1.20.0 (runtime); `testcontainers[postgres]` 4.15.0 (dev). Lockfile updated with `uv add`.
+- `db/models.py`: SQLAlchemy 2 typed models `EvalRun`, `EvalResult`, `LLMCall` exactly as BACKEND_SCHEMA §S2 (uuid PK `gen_random_uuid()`, `created_at timestamptz default now()`, text+CHECK statuses, jsonb payloads, `Decimal` money columns, the three §S2 indexes, unique `run_key` and `(run_id, case_id)`, FK cascade only run→results). Deterministic constraint naming convention.
+- `db/session.py`: `create_engine` (asyncpg-only URL check that never echoes the URL; `pool_pre_ping`, bounded `pool_timeout`, `application_name`), `create_engine_from_settings`, `create_session_factory` (`expire_on_commit=False`). No import-time connection.
+- `db/repositories.py`: insert/select for each table (`add_eval_run`, `get_eval_run`, `get_eval_run_by_key`, `list_eval_runs`, `add_eval_results`, `list_eval_results`, `add_llm_calls`, `list_llm_calls`). They flush but never commit (caller owns the unit of work); every list query is bounded (1–1000) and index-backed.
+- Settings: `DB_POOL_SIZE` (default 5, 1–50), `DB_MAX_OVERFLOW` (5), `DB_POOL_TIMEOUT_S` (10), documented in `.env.example`.
+- Alembic (async): `alembic.ini` with no URL; `migrations/env.py` takes the URL from `config.attributes` (tests) or `DATABASE_URL` via Settings; offline `--sql` mode needs no DB. Revision `0001_baseline`: `CREATE EXTENSION vector` + 3 tables + indexes; downgrade drops them all.
+- `docker-compose.yml`: `db` = `pgvector/pgvector:pg16`, named volume `pgdata`, `pg_isready` healthcheck, `127.0.0.1` port; `api` built from the Dockerfile, `depends_on: db: service_healthy`, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`, loopback port. Credentials only via `.env` with `${VAR:?}` (no default password).
+- Multi-stage `Dockerfile` (uv 0.13.1 builder → `python:3.12-slim-bookworm` runtime, `uv sync --locked --no-dev --no-editable`, non-root uid 10001, root-owned venv) + `.dockerignore` (excludes `.env*`, `.venv`, `data`, `runs`, `.git`, tests).
+- `tests/conftest.py`: session-scoped testcontainers pgvector Postgres (skips with a reason if Docker is down); `migrated_database_url` (alembic upgrade head); `empty_database_url` (fresh DB per test, dropped after); `db_engine`/`db_session` (outer transaction rolled back, `join_transaction_mode="create_savepoint"`).
+- Tests: `tests/integration/test_migrations.py` (upgrade on empty DB; downgrade→upgrade round trip with identical schema snapshot; autogenerate diff between migration and models is empty), `tests/integration/test_repositories.py` (round trip per table plus unique/CHECK/FK/cascade/no-cascade constraints, bounds, filters), `tests/unit/test_db_session.py`, `tests/unit/test_deploy_files.py` (loopback ports, no default password, non-root, no dev deps), pool settings test.
+- Verification evidence: `ruff check` ✔, `ruff format --check` ✔, `mypy src` (strict) ✔, `pytest -q` **43 passed** (16 integration tests ran against real containers, confirmed with `-m integration -v`), coverage 99 % total / 100 % on `db/`, `pip-audit` no known vulnerabilities. The drift test was checked by changing `list_cost_usd` to `Numeric(12,4)`: it failed with `modify_type`, then the change was reverted. No test containers were left running afterwards (`docker ps -a` empty).
+- Image check: `docker build` succeeded (296 MB). In the container: `id` → `uid=10001(app)`, no pytest/ruff/mypy/testcontainers/coverage and no `uv`, `alembic upgrade head --sql` renders 4 `CREATE TABLE`. The check image was removed afterwards. `docker compose config` shows both ports bound to `127.0.0.1` and fails without `POSTGRES_PASSWORD`. **The compose stack was never started and no migration ran against it.**
+- Security: loopback-only ports; secrets only from `.env`; URL/password never echoed in errors (tested); non-root, read-only, capability-dropped container; build context excludes secrets; DDL in tests uses only generated identifiers. Performance: §S2 indexes present and verified; pool sized via settings with bounded wait; repository list queries capped.
+- Docker Desktop was not running; the agent started the Desktop app (not the compose stack) to run the testcontainers tests.
+
+**Files:** `pyproject.toml`, `uv.lock`, `src/receipt_extractor/config.py`, `src/receipt_extractor/db/{models,session,repositories}.py`, `alembic.ini`, `migrations/{env.py,script.py.mako}`, `migrations/versions/0001_baseline.py` (removed `migrations/.gitkeep`), `docker-compose.yml`, `Dockerfile`, `.dockerignore`, `.env.example`, `tests/conftest.py`, `tests/integration/test_{migrations,repositories}.py`, `tests/unit/test_{db_session,deploy_files,config}.py`, `README.md`, `TRD.md` (§S6), `BACKEND_SCHEMA.md` (§S2 notes), `WORKLOG.md`.
+
+**Decisions:**
+- `eval_result.run_id` gets no separate single-column index: `(run_id, status)` and unique `(run_id, case_id)` both lead with it (satisfies §S1 "every FK has an index"). Recorded in BACKEND_SCHEMA §S2.
+- `llm_call.run_id` uses the default `NO ACTION` (not cascade, not SET NULL): §S1 allows cascade only run→results, and SET NULL would mislabel eval calls as live traffic. Deleting a run that has calls fails loudly (tested). Recorded in BACKEND_SCHEMA §S2.
+- Hand-written baseline (not autogenerate) with a drift test in its place, so the migration and models can't silently diverge.
+- Compose-only variables (`POSTGRES_*`, `API_PORT`) live in `.env.example` but not in `Settings`; the `.env.example` completeness test allow-lists them explicitly.
+- Integration tests skip (with a reason, visible through `-ra`) when Docker is unreachable, rather than erroring. The TRD §S8 gate run requires Docker running.
+- The `api` image's CMD targets `receipt_extractor.api.main:app` with uvicorn. Both arrive in M0.5, so `docker compose up api` won't work until then (the `db` service works now).
+- `downgrade` of the baseline drops the `vector` extension. The DB is project-owned, and later revisions downgrade first.
+
+**Open:**
+- Human action (start + migrate the local DB):
+  1. `Copy-Item .env.example .env`, then set `POSTGRES_PASSWORD` (URL-safe characters) and put the same password in `DATABASE_URL`.
+  2. `docker compose up -d db`
+  3. `uv run alembic upgrade head`
+  Optional preview of the DDL first: `uv run alembic upgrade head --sql`.
+- 2026-10-19 check after the human ran the steps: `db` container is up and healthy on `127.0.0.1:5432`. `.env` DATABASE_URL has the right driver/user/db/port, but its password doesn't parse: the password contains `@` (not URL-safe), so the URL splits at the wrong `@` and the host is wrong. `alembic upgrade head` cannot have connected with this URL. The agent ran no SQL and did not check `alembic_version`. Mistake: the check printed the parsed host, which showed a fragment of the password in the session transcript. It has not been written to any file.
+- Fixed by the agent at the human's request: `.env` `DATABASE_URL` was rebuilt from `POSTGRES_USER/PASSWORD/DB/PORT` with each part percent-encoded and host `127.0.0.1`. A round-trip check confirmed it decodes to `POSTGRES_PASSWORD`, and `load_settings()` parses it. No secret was printed, and only that one line changed.
+- Human action: run `uv run alembic upgrade head` and `uv run alembic current` (expect `0001_baseline (head)`). Optional, since part of it was shown in a transcript: change the password (needs `ALTER USER`, or `docker compose down -v` on the still-empty volume — both human-run).
+- 2026-10-19, read-only check run with the human's permission: `uv run alembic current` connected to the compose DB with the fixed URL but printed no revision, so the database is **not migrated yet** (the only `upgrade` run visible was the failed one from before the fix). Human action still open: `uv run alembic upgrade head`.
+- 2026-10-19: the human ran `uv run alembic upgrade head`. A read-only `uv run alembic current` (run with permission) now reports `0001_baseline (head)`. **The compose DB is migrated; M0.2 human actions are complete.**
+- Follow-up (M0.5): the compose `api` service builds DATABASE_URL from the raw `POSTGRES_PASSWORD`, which breaks for non-URL-safe passwords. Pass a dedicated, pre-encoded URL variable instead.
+- Follow-up (M0.5): add FastAPI/uvicorn and `api/main.py` so the `api` compose service runs; add an image HEALTHCHECK against `/health` then.
+- Note: base images are pinned by tag (`pgvector/pgvector:pg16`, `python:3.12-slim-bookworm`, `uv:0.13.1`), not digest. Consider digest pinning before MF.1 deploy.
 
 ## 2026-10-19 — TOOLING · graphify knowledge graph + ponytail plugin
 

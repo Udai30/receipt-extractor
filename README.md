@@ -15,9 +15,11 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12 (uv installs it if mis
 
 ```powershell
 uv sync                                   # creates .venv and installs locked dependencies
-Copy-Item .env.example .env               # then fill in the values
+Copy-Item .env.example .env               # then set POSTGRES_PASSWORD and the same value in DATABASE_URL
+docker compose up -d db                   # Postgres 16 + pgvector on 127.0.0.1:5432
+uv run alembic upgrade head               # apply migrations
 uv run receipt_extractor --help
-uv run ruff check . ; uv run mypy src ; uv run pytest -q
+uv run ruff check . ; uv run mypy src ; uv run pytest -q   # integration tests need Docker running
 ```
 
 ## Architecture

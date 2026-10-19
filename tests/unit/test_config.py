@@ -88,6 +88,25 @@ def test_settings_are_immutable(clean_env: pytest.MonkeyPatch) -> None:
         settings.demo_mode = True  # type: ignore[misc]
 
 
+def test_pool_settings_have_defaults_and_bounds(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("DATABASE_URL", DB_URL)
+    settings = load_settings()
+    assert (settings.db_pool_size, settings.db_max_overflow) == (5, 5)
+    clean_env.setenv("DB_POOL_SIZE", "0")
+    with pytest.raises(ConfigError, match="DB_POOL_SIZE"):
+        load_settings()
+
+
+# Read by docker-compose.yml only, never by the application.
+COMPOSE_ONLY_KEYS = {
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+    "POSTGRES_PORT",
+    "API_PORT",
+}
+
+
 def test_env_example_documents_every_setting() -> None:
     env_example = Path(__file__).resolve().parents[2] / ".env.example"
     keys = {
@@ -95,4 +114,5 @@ def test_env_example_documents_every_setting() -> None:
         for line in env_example.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
-    assert {name.upper() for name in Settings.model_fields} == keys
+    assert {name.upper() for name in Settings.model_fields} == keys - COMPOSE_ONLY_KEYS
+    assert keys >= COMPOSE_ONLY_KEYS

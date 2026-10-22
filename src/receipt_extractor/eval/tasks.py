@@ -21,7 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from receipt_extractor.eval.datasets import Case
 from receipt_extractor.eval.errors import UnknownTaskError
 
-_BUILTIN_MODULES: Final = ("receipt_extractor.eval.toy", "receipt_extractor.eval.oracle")
+_BUILTIN_MODULES: Final = (
+    "receipt_extractor.eval.toy",
+    "receipt_extractor.eval.oracle",
+    "receipt_extractor.pipelines.tasks",
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +33,8 @@ class CaseContext:
     """What a task may need besides the case: correlation ids and where LLM calls are logged.
 
     ``run_uuid`` is derived from ``run_id`` for :class:`~receipt_extractor.llm.CallTags`
-    (whose ``run_id`` is a UUID); ``llm_calls_path`` is ``runs/<run_id>/llm_calls.jsonl``.
+    (whose ``run_id`` is a UUID); ``llm_calls_path`` is ``runs/<run_id>/llm_calls.jsonl``;
+    ``root`` is the project root that project-relative case inputs (image paths) resolve against.
     """
 
     run_id: str
@@ -38,6 +43,7 @@ class CaseContext:
     llm_calls_path: Path
     case_id: str
     seed: int
+    root: Path
 
 
 class CaseOutput(BaseModel):

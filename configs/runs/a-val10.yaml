@@ -1,0 +1,41 @@
+# Pipeline A, engineered mode (+ one schema repair; M2.2 adds retries, reconciliation and
+# needs_review) on 10 CORD validation receipts — M1.3 tuning run.
+# Validation only: prompt fixes are judged here, never on test (TRD §5).
+# Model calls are cached under .cache/llm/, so a re-run costs nothing (FR-6).
+#   uv run receipt_extractor eval run --config configs/runs/a-val10.yaml
+variant: A
+task: pipeline_a
+params:
+  mode: engineered
+  model: groq-oss-20b
+  prompt_version: a-v3
+  max_tokens: 4096
+  ocr:
+    det_max_side: 960
+    use_angle_cls: false
+    threads: 4
+    min_text_score: 0.5
+dataset:
+  kind: cord
+  split: validation
+sample:
+  size: 10
+  seed: 0
+models:
+  - groq-oss-20b
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 2

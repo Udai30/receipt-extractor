@@ -146,7 +146,8 @@ class _CachedEmbed(BaseModel):
 class _Outcome[T]:
     result: T
     retries: int
-    latency_ms: int
+    latency_ms: int  # provider time incl. retry backoff, excluding wait_ms
+    wait_ms: int = 0  # queued for the daily budget, rate limiter or a concurrency slot
 
 
 def _elapsed_ms(start: float) -> int:
@@ -231,17 +232,19 @@ class LLMClient:
         schema = request.response_model.model_json_schema() if request.response_model else None
         key = None
         if self._cache is not None:
-            key = cache_key(
-                {
-                    "op": "chat",
-                    "model": spec.model,
-                    "messages": [m.cache_repr() for m in request.messages],
-                    "temperature": request.temperature,
-                    "max_tokens": request.max_tokens,
-                    "seed": request.seed,
-                    "schema": schema,
-                }
-            )
+            payload: dict[str, Any] = {
+                "op": "chat",
+                "model": spec.model,
+                "messages": [m.cache_repr() for m in request.messages],
+                "temperature": request.temperature,
+                "max_tokens": request.max_tokens,
+                "seed": request.seed,
+                "schema": schema,
+            }
+            if schema is not None and not request.repair:
+                # Only when it changes the outcome, so existing cache keys stay valid.
+                payload["repair"] = False
+            key = cache_key(payload)
             cached = await self._cached_chat(key, spec, request.tags)
             if cached is not None:
                 return cached
@@ -281,10 +284,11 @@ class LLMClient:
             return response
 
         problems = validation_problems(request.response_model, first.result.text)
-        if problems is None:
-            record = await self._emit_chat(spec, request.tags, stage, first, schema_valid=True)
+        if problems is None or not request.repair:
+            valid = problems is None
+            record = await self._emit_chat(spec, request.tags, stage, first, schema_valid=valid)
             response = self._chat_response(
-                spec, [(first, record)], schema_valid=True, repaired=False
+                spec, [(first, record)], schema_valid=valid, repaired=False
             )
             await self._store_chat(key, response)
             return response
@@ -366,6 +370,7 @@ class LLMClient:
             request.tags.stage,
             tokens_in=result.tokens_in,
             latency_ms=outcome.latency_ms,
+            wait_ms=outcome.wait_ms,
             cache_hit=False,
             retries=outcome.retries,
             list_cost_usd=cost,
@@ -381,6 +386,7 @@ class LLMClient:
             vectors=tuple(tuple(v) for v in result.vectors),
             tokens_in=result.tokens_in,
             latency_ms=outcome.latency_ms,
+            wait_ms=outcome.wait_ms,
             cache_hit=False,
             retries=outcome.retries,
             list_cost_usd=cost,
@@ -440,14 +446,17 @@ class LLMClient:
         """
         limiter = self._limiter(spec)
         start = time.perf_counter()
+        waited_s = 0.0
         failures = 0
         while True:
+            queued = time.perf_counter()
             if self._budget is not None:
                 await self._budget.reserve(spec.alias, spec.limits, estimate)
             reserved = await limiter.acquire(estimate)
             error: ProviderError
             try:
                 async with self._semaphore:
+                    waited_s += time.perf_counter() - queued
                     async with asyncio.timeout(timeout_s):
                         result = await op()
             except TimeoutError:
@@ -460,7 +469,8 @@ class LLMClient:
                 limiter.settle(reserved, actual)
                 if self._budget is not None:
                     await self._budget.settle(spec.alias, estimate, actual)
-                return _Outcome(result, failures, _elapsed_ms(start))
+                wait_ms = round(waited_s * 1000)
+                return _Outcome(result, failures, max(0, _elapsed_ms(start) - wait_ms), wait_ms)
 
             if self._budget is not None:  # the request counts; failed calls consume no tokens
                 await self._budget.settle(spec.alias, estimate, 0)
@@ -476,11 +486,13 @@ class LLMClient:
             ):
                 final = error  # e.g. daily quota: waiting hours inside a call is never right
             if final is not None:
+                wait_ms = round(waited_s * 1000)
                 await self._emit(
                     spec,
                     tags,
                     stage,
-                    latency_ms=_elapsed_ms(start),
+                    latency_ms=max(0, _elapsed_ms(start) - wait_ms),
+                    wait_ms=wait_ms,
                     cache_hit=False,
                     retries=failures - 1,
                     error=sanitize_error_text(
@@ -619,6 +631,7 @@ class LLMClient:
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
             latency_ms=outcome.latency_ms,
+            wait_ms=outcome.wait_ms,
             cache_hit=False,
             retries=outcome.retries,
             schema_valid=schema_valid,
@@ -634,6 +647,7 @@ class LLMClient:
         latency_ms: int,
         cache_hit: bool,
         retries: int,
+        wait_ms: int = 0,
         tokens_in: int | None = None,
         tokens_out: int | None = None,
         schema_valid: bool | None = None,
@@ -651,6 +665,7 @@ class LLMClient:
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             latency_ms=latency_ms,
+            wait_ms=wait_ms,
             cache_hit=cache_hit,
             retries=retries,
             schema_valid=schema_valid,
@@ -687,6 +702,7 @@ class LLMClient:
             tokens_out=tokens_out,
             finish_reason=last.finish_reason,
             latency_ms=sum(outcome.latency_ms for outcome, _ in parts),
+            wait_ms=sum(outcome.wait_ms for outcome, _ in parts),
             cache_hit=False,
             retries=sum(outcome.retries for outcome, _ in parts),
             schema_valid=schema_valid,

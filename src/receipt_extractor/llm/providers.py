@@ -4,10 +4,16 @@ Adapters make exactly one attempt per call and translate failures into the
 :mod:`receipt_extractor.llm.errors` hierarchy; retries, timeouts, limits and accounting are the
 client's job. LiteLLM is imported lazily (it takes seconds to import) with its remote model-cost
 map disabled, so importing this module never touches the network.
+
+A structured-output request whose reply the *provider* rejects against the schema (Groq:
+HTTP 400 ``json_validate_failed``) is not a request error: the model answered, just not in
+shape. It is returned as a reply (the rejected text, ``finish_reason = "schema_rejected"``)
+so the client's own validation/repair handles it like any other invalid reply.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from types import ModuleType
@@ -26,6 +32,10 @@ from receipt_extractor.llm.retry import parse_retry_after
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_REQUEST_TIMEOUT = 408
 _HTTP_SERVER_ERROR = 500
+_HTTP_BAD_REQUEST = 400
+SCHEMA_REJECTED = "schema_rejected"
+_SCHEMA_REJECTION_CODES = frozenset({"json_validate_failed"})
+_MAX_REJECTED_TEXT_CHARS = 64_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +139,29 @@ def map_provider_exception(exc: BaseException, *, secrets: list[str]) -> Provide
     return ProviderRequestError(message, status_code=status)
 
 
+def schema_rejection_text(exc: BaseException) -> str | None:
+    """The rejected generation if ``exc`` is a provider-side schema rejection, else ``None``.
+
+    Only a 400 whose JSON error body carries a known code counts; the generation is model
+    output (empty when the provider omits it), never an echo of the request.
+    """
+    if getattr(exc, "status_code", None) != _HTTP_BAD_REQUEST:
+        return None
+    text = str(exc)
+    start = text.find("{")
+    if start < 0:
+        return None
+    try:
+        body, _ = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        return None
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict) or error.get("code") not in _SCHEMA_REJECTION_CODES:
+        return None
+    generation = error.get("failed_generation")
+    return generation[:_MAX_REJECTED_TEXT_CHARS] if isinstance(generation, str) else ""
+
+
 def _usage(response: Any, key: str) -> int | None:
     usage = getattr(response, "usage", None)
     value = getattr(usage, key, None) if usage is not None else None
@@ -164,6 +197,11 @@ class LiteLLMProvider:
         try:
             response = await litellm.acompletion(**kwargs)
         except Exception as exc:
+            rejected = schema_rejection_text(exc) if call.json_schema is not None else None
+            if rejected is not None:
+                return ChatResult(
+                    text=rejected, tokens_in=None, tokens_out=None, finish_reason=SCHEMA_REJECTED
+                )
             raise map_provider_exception(exc, secrets=secrets) from None
         try:
             choice = response.choices[0]

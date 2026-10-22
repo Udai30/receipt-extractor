@@ -241,6 +241,64 @@ async def test_invalid_json_after_repair_sets_schema_valid_false(
         response.parse(Total)
 
 
+async def test_queue_wait_is_reported_apart_from_latency(
+    make_client: Factory, sink: MemorySink
+) -> None:
+    provider = FakeProvider(default=FakeReply(text="ok", latency_s=0.1))
+    client = make_client(provider, max_concurrency=1)
+    first, second = await asyncio.gather(client.complete(chat()), client.complete(chat()))
+
+    queued, served = sorted((first, second), key=lambda r: r.wait_ms, reverse=True)
+    assert queued.wait_ms >= 80  # waited for the only concurrency slot
+    assert queued.latency_ms < 180  # its own provider time, not slot wait + call
+    assert served.wait_ms < 50
+    assert sorted(r.wait_ms for r in sink.records) == sorted((first.wait_ms, second.wait_ms))
+
+
+async def test_repair_disabled_makes_exactly_one_call(
+    make_client: Factory, sink: MemorySink
+) -> None:
+    provider = FakeProvider([FakeReply(text="not json at all")])
+    response = await make_client(provider).complete(chat(response_model=Total, repair=False))
+
+    assert len(provider.calls) == 1
+    assert provider.calls[0].json_schema == Total.model_json_schema()  # schema still sent
+    assert response.schema_valid is False
+    assert response.repaired is False
+    assert [r.schema_valid for r in sink.records] == [False]
+
+
+async def test_repair_disabled_valid_reply_and_separate_cache_entry(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider(
+        [FakeReply(text="{broken"), FakeReply(text='{"total": "1", "currency": "IDR"}')],
+        default=FakeReply(text='{"total": "2", "currency": "IDR"}'),
+    )
+    client = make_client(provider, cache=True)
+
+    naive = await client.complete(chat(response_model=Total, repair=False))
+    assert naive.schema_valid is False and len(provider.calls) == 1
+    again = await client.complete(chat(response_model=Total, repair=False))
+    assert again.cache_hit is True and again.text == "{broken"  # invalid reply cached as is
+    # The same request with repair ON must not reuse the naive (unrepaired) entry.
+    repaired = await client.complete(chat(response_model=Total))
+    assert repaired.cache_hit is False
+    assert repaired.schema_valid is True
+    assert len(provider.calls) == 2
+
+
+async def test_repair_flag_does_not_change_cache_key_without_schema(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider([FakeReply(text="hello")])
+    client = make_client(provider, cache=True)
+    await client.complete(chat())
+    hit = await client.complete(chat(repair=False))
+    assert hit.cache_hit is True
+    assert len(provider.calls) == 1
+
+
 async def test_repair_call_failure_returns_invalid_first_reply(
     make_client: Factory, sink: MemorySink
 ) -> None:

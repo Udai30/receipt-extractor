@@ -331,6 +331,7 @@ async def execute_run(
                     llm_calls_path=prepared.run_dir / LLM_CALLS_FILENAME,
                     case_id=case_id,
                     seed=config.seed,
+                    root=prepared.root,
                 )
                 async with asyncio.timeout(config.case_timeout_s):
                     output = await task(case, ctx)

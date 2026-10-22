@@ -59,6 +59,25 @@ Decimals have 1–2 digits and groups exactly three; anything else raises `Amoun
 `pipeline, receipt (Receipt | null), schema_valid, attempts, reconciled, needs_review, reconcile_diff,
 ocr_text_chars, stage_latency_ms{ocr, llm, validate}`.
 
+Implemented in `core/extraction.py` (M1.3), strict and frozen:
+| Field | Type | Notes |
+|---|---|---|
+| pipeline | str | variant name: `A-naive`, `A` (later `B`, `C`) |
+| receipt | `Receipt` \| null | null when invalid or nothing to structure |
+| schema_valid | bool | `receipt` is not null |
+| attempts | int | LLM calls: 0 (no OCR text), 1, or 2 (repaired) |
+| reconciled / needs_review / reconcile_diff | bool / bool / Decimal \| null | null until M2.2 |
+| failure | `ocr_empty` \| `schema_invalid` \| `truncated` \| null | why `receipt` is null |
+| model_alias, prompt_version | str \| null | |
+| ocr_text_chars, ocr_lines, ocr_truncated | int, int, bool | OCR metadata (A only) |
+| stage_latency_ms | `{ocr, llm, llm_wait, validate}` (ms \| null) | `llm` excludes free-tier pacing waits, which are `llm_wait` (TRD §S3) |
+| tokens_in, tokens_out, list_cost_usd | int, int, Decimal string | summed over the receipt's calls |
+| cache_hit | bool | served from the disk cache (latencies then ≈ 0) |
+| raw_text | str \| null | the model reply, only when it did not validate (≤ 8,000 chars) |
+
+The OCR text is **not** serialised in `ExtractionResult`; eval tasks store it as
+`ResultRow.details.ocr_text` (CORD is public; the UI never persists it).
+
 ### 1.3 `ResultRow.details`
 `field_scores{items_p, items_r, items_f1, subtotal_ok, tax_ok, total_ok, field_f1, valid_json,
 reconciled}`, `item_matches{pairs[{gold, pred, name_similarity, name_ok, price_ok, match}],
@@ -79,7 +98,8 @@ price; `match` = both.
 - `data/cord/images/<id>.png|jpg` — receipt image bytes as published.
 - `data/cord/splits/<split>.txt` — the split's ids, one per line.
 - `data/cord/raw/data/*.parquet` — the pinned source files (verified by size + SHA-256).
-- `configs/runs/{a-naive,a,b,c}.yaml` — run configs.
+- `configs/runs/{a-naive,a,b,c}.yaml` — run configs (test split, M2.3+);
+  `configs/runs/{a-naive,a}-val10.yaml` — 10 validation receipts for prompt tuning (M1.3).
 - `data/imports/qwen_vl/` — Kaggle predictions + manifest (stretch).
 
 ---
@@ -107,7 +127,7 @@ price; `match` = both.
 | list_cost_usd | str (Decimal) | |
 
 ### `LLMCallRecord` — one line of `runs/<run_id>/llm_calls.jsonl`
-`provider, model, alias, case_id, stage, tokens_in, tokens_out, latency_ms, cache_hit, retries,
+`provider, model, alias, case_id, stage, tokens_in, tokens_out, latency_ms, wait_ms, cache_hit, retries,
 schema_valid (null if no schema), list_price_usd, actual_cost_usd, error (null on success), ts`.
 
 ### `summary.json`

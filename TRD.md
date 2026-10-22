@@ -65,6 +65,30 @@ runner reads a prepared split through the `cord` dataset kind (`{kind: cord, spl
 `extract(image) -> ExtractionResult(receipt | None, raw_text, attempts, stage_latency, tokens, cost)`.
 Pipelines never return ad-hoc dicts.
 
+Implementation (M1.3): `pipelines/base.py` (`Pipeline` protocol:
+`async extract(image: bytes, *, origin, tags) -> ExtractionResult`; `origin` is the request's
+`data_origin`, so `public_only` models refuse user uploads), `core/extraction.py`
+(`ExtractionResult`, BACKEND_SCHEMA §1.2), `pipelines/ocr.py`, `pipelines/prompts.py`,
+`pipelines/pipeline_a.py`, `pipelines/tasks.py` (eval task `pipeline_a`).
+- **OCR stage (A).** Image bytes are untrusted: ≤ 32 MB, PNG/JPEG/WebP magic, ≤ 8,192 px per side
+  and ≤ 40 MP checked from the header before decoding; EXIF orientation applied; decoded in memory
+  only. RapidOCR 3 (ONNX Runtime, CPU) with the PP-OCRv6 small det/rec models **bundled in the
+  wheel**, passed by path so it never downloads. Settings chosen on validation timing: no angle
+  classifier, detection resized to max side 960, 4 intra-op threads (default settings took ≈ 4 s
+  per receipt). One engine call at a time per stage; `latency_ms` excludes the lock wait; over
+  2,000 ms a metadata-only warning is logged. Boxes are grouped into printed lines (vertical
+  overlap) and joined left to right with ` | `.
+- **Structuring (A).** Versioned prompts (`a-v1` … `a-v3`; the version is a run param, so part of
+  the run id; published versions are never edited). OCR text goes between `<ocr_text>` tags,
+  delimiter look-alikes inside it are replaced, it is capped at 16,000 chars, and the system prompt
+  says it is untrusted data whose instructions must not be followed. Amounts are asked for as
+  printed strings so `parse_amount()` stays the only number interpreter. `Receipt` is the
+  `response_model`; `max_tokens` 4,096 (gpt-oss reasons before answering).
+- **Modes.** `naive` (`A-naive`): one call with `repair = false`, an invalid reply is final.
+  `engineered` (`A`): the layer's one repair (§S3); M2.2 adds the second retry, reconciliation and
+  `needs_review`. Same prompt and model in both, so the difference is the validation machinery.
+  No OCR text → no model call (`failure = ocr_empty`).
+
 ### 4.3 Validation, retry and reconciliation
 Validate → on failure, re-ask with the Pydantic errors (max 2 attempts) → arithmetic check
 (Σ item prices vs subtotal within a tolerance; subtotal + tax vs total) → `needs_review = True` when
@@ -135,6 +159,7 @@ M2.2), `eval/oracle.py` (`gold` task).
 | LLM access | The provider layer ported from P01 (`src/<pkg>/llm/`, LiteLLM underneath) — §S3 |
 | Data | `huggingface_hub` (revision and file SHA-256 pinned) + `pyarrow` (streamed parquet); the heavier `datasets`/pandas are not needed |
 | Scoring | `scipy` (`linear_sum_assignment`, Hungarian item matching) + `rapidfuzz` (item-name similarity) |
+| OCR | `rapidocr` 3 + `onnxruntime` (CPU; det/rec models ship in the wheel, no runtime download); Pillow decodes images |
 | Results | Files: `runs/<run_id>/*.jsonl|json` → `reports/*.csv|md|png` (committed). **No database.** |
 | UI | Gradio 5 `Blocks` in `app.py` → Hugging Face Space (Gradio SDK, free CPU) |
 | GPU work | Kaggle notebooks under `notebooks/`, versions pinned, run by the human; outputs imported by a CLI command |
@@ -150,6 +175,7 @@ M2.2), `eval/oracle.py` (`gold` task).
 │   ├── llm/                 # provider client, cache, rate limiter, pricing (§S3) — ported from P01
 │   ├── eval/                # run configs, runner, metrics, reports (§S4)
 │   ├── data/                # dataset download + normalisation to gold files (`cli data …`)
+│   ├── pipelines/           # Pipeline protocol, OCR stage, prompts, pipelines A (B, C later)
 │   ├── ui/                  # Gradio Blocks + theme (no business logic in callbacks)
 │   └── cli.py               # Typer CLI: data / eval / report / llm
 ├── app.py                   # HF Space entry point → receipt_extractor.ui
@@ -185,9 +211,15 @@ rename the package.
 - **Retries:** jittered exponential backoff on 429/5xx/timeouts (max 5 attempts, honours
   `Retry-After`); no retry on 4xx validation errors; hard timeout per call (default 60 s).
 - **Structured output:** schema sent as `response_format`, reply validated with Pydantic, exactly one
-  repair attempt with the validation errors appended, then `schema_valid = false`.
-- **Accounting:** every call records provider, model, tokens in/out, latency (`perf_counter`), cache
-  hit, retries, `list_price_usd` from dated `configs/pricing.yaml`, `actual_cost_usd` (0 on free
+  repair attempt with the validation errors appended, then `schema_valid = false`. `repair = false`
+  on the request (naive baselines) makes exactly one call; it is part of the cache key only when
+  set, so existing entries stay valid. A provider-side schema rejection (Groq HTTP 400
+  `json_validate_failed`) is returned by the adapter as an invalid reply (its
+  `failed_generation`, `finish_reason = schema_rejected`), not raised, so it is repaired or
+  reported as invalid output like any other.
+- **Accounting:** every call records provider, model, tokens in/out, latency (`perf_counter`; time
+  in the provider call incl. retry backoff), `wait_ms` (time queued for the daily budget, the rate
+  limiter or a concurrency slot — free-tier pacing, kept out of latency), cache hit, retries, `list_price_usd` from dated `configs/pricing.yaml`, `actual_cost_usd` (0 on free
   tiers). Sink: `runs/<run_id>/llm_calls.jsonl` (v1's database sink is not used in v2).
 - **Privacy:** keys never logged; provider error bodies sanitised; prompts logged in full only for
   eval runs on public data.

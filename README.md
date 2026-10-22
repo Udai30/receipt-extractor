@@ -42,6 +42,9 @@ uv run receipt_extractor report failures                                 # → r
 ```
 
 `configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call.
+`configs/runs/a-naive-val10.yaml` and `configs/runs/a-val10.yaml` run pipeline A (RapidOCR on the
+CPU → Groq `gpt-oss-20b`, naive vs engineered) on 10 validation receipts; they need
+`GROQ_API_KEY`, and model replies are cached under `.cache/llm/`, so a re-run is free.
 `configs/runs/gold.yaml` scores the CORD test gold against itself (the scorer's calibration: every
 comparative metric is 1.0; `reconcile` 0.84 is how often the printed receipts add up).
 

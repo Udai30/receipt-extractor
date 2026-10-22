@@ -53,6 +53,11 @@ sequenceDiagram
     V-->>UI: Receipt + needs_review + metadata
 ```
 
+Pipeline A (M1.3): the image is decoded in memory → RapidOCR → layout-ordered text placed between
+`<ocr_text>` tags as untrusted data → `groq-oss-20b` with the `Receipt` schema. Naive mode
+(`A-naive`) stops after the first reply (no repair, no checks); engineered mode (`A`) runs the
+repair branch above. No OCR text → no model call (`failure = ocr_empty`).
+
 ## 3. States
 
 | State | UI |

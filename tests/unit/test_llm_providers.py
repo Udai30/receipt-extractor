@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -17,11 +18,13 @@ from receipt_extractor.llm.errors import (
     RateLimitedError,
 )
 from receipt_extractor.llm.providers import (
+    SCHEMA_REJECTED,
     ChatCall,
     EmbedCall,
     LiteLLMProvider,
     _litellm,
     map_provider_exception,
+    schema_rejection_text,
 )
 
 API_KEY = "gsk_TESTKEYtestkey0123456789"  # fake value
@@ -178,6 +181,95 @@ async def test_complete_maps_exceptions_without_chaining(
         await LiteLLMProvider().complete(call)
     assert excinfo.value.__cause__ is None and excinfo.value.__suppress_context__
     assert API_KEY not in str(excinfo.value)
+
+
+def _groq_bad_request(litellm: Any, body: dict[str, Any]) -> Exception:
+    exc: Exception = litellm.exceptions.BadRequestError(
+        message=f"GroqException - {json.dumps(body)}",
+        llm_provider="groq",
+        model="m",
+        response=_response(400),
+    )
+    return exc
+
+
+REJECTION = {
+    "error": {
+        "message": "Failed to validate JSON.",
+        "type": "invalid_request_error",
+        "code": "json_validate_failed",
+        "failed_generation": '{"total": "B.000"}',
+    }
+}
+
+
+def _schema_call(schema: dict[str, Any] | None = None) -> ChatCall:
+    return ChatCall(
+        model="groq/x",
+        messages=[{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=5,
+        timeout_s=1.0,
+        json_schema=schema,
+        api_key=API_KEY,
+    )
+
+
+async def test_provider_schema_rejection_is_returned_as_a_reply(
+    litellm: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def rejecting(**_: Any) -> Any:
+        raise _groq_bad_request(litellm, REJECTION)
+
+    monkeypatch.setattr(litellm, "acompletion", rejecting)
+    result = await LiteLLMProvider().complete(_schema_call({"type": "object"}))
+    assert result.text == '{"total": "B.000"}'
+    assert result.finish_reason == SCHEMA_REJECTED
+    assert (result.tokens_in, result.tokens_out) == (None, None)
+
+
+async def test_schema_rejection_without_generation_gives_empty_reply(
+    litellm: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = {"error": {**REJECTION["error"], "failed_generation": None}}
+
+    async def rejecting(**_: Any) -> Any:
+        raise _groq_bad_request(litellm, body)
+
+    monkeypatch.setattr(litellm, "acompletion", rejecting)
+    result = await LiteLLMProvider().complete(_schema_call({"type": "object"}))
+    assert (result.text, result.finish_reason) == ("", SCHEMA_REJECTED)
+
+
+@pytest.mark.parametrize(
+    ("body", "schema"),
+    [
+        (REJECTION, None),  # no schema was requested: a real request error
+        ({"error": {"code": "invalid_api_key", "message": "bad key"}}, {"type": "object"}),
+        ({"error": "json_validate_failed"}, {"type": "object"}),
+    ],
+)
+async def test_other_bad_requests_still_raise(
+    litellm: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    body: dict[str, Any],
+    schema: dict[str, Any] | None,
+) -> None:
+    async def failing(**_: Any) -> Any:
+        raise _groq_bad_request(litellm, body)
+
+    monkeypatch.setattr(litellm, "acompletion", failing)
+    with pytest.raises(ProviderRequestError):
+        await LiteLLMProvider().complete(_schema_call(schema))
+
+
+def test_schema_rejection_text_ignores_non_400_and_garbage(litellm: Any) -> None:
+    server = litellm.exceptions.InternalServerError(
+        message=json.dumps(REJECTION), llm_provider="groq", model="m"
+    )
+    assert schema_rejection_text(server) is None
+    assert schema_rejection_text(ValueError("{not json")) is None
+    assert schema_rejection_text(_groq_bad_request(litellm, REJECTION)) == '{"total": "B.000"}'
 
 
 async def test_complete_rejects_empty_choices(

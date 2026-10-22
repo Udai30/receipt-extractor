@@ -112,7 +112,8 @@ class LLMRequest(BaseModel):
     """A chat completion request against a model alias.
 
     ``response_model`` turns on structured output: its JSON schema is sent as the
-    ``response_format`` and the reply is validated against it (one repair attempt).
+    ``response_format`` and the reply is validated against it (one repair attempt, unless
+    ``repair`` is ``False`` — naive baselines make exactly one call).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
@@ -123,6 +124,7 @@ class LLMRequest(BaseModel):
     max_tokens: int = Field(default=1024, ge=1, le=65536)
     seed: int | None = None
     response_model: type[BaseModel] | None = Field(default=None, exclude=True)
+    repair: bool = True
     data_origin: DataOrigin = "user_upload"
     tags: CallTags = CallTags()
     timeout_s: float | None = Field(default=None, gt=0, le=600)
@@ -156,6 +158,7 @@ class _Accounting(BaseModel):
     provider: str
     model: str
     latency_ms: int = Field(ge=0)
+    wait_ms: int = Field(default=0, ge=0)
     cache_hit: bool
     retries: int = Field(ge=0)
     list_cost_usd: Decimal | None
@@ -211,6 +214,7 @@ class LLMCallRecord(BaseModel):
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int = Field(ge=0)
+    wait_ms: int = Field(default=0, ge=0)
     cache_hit: bool
     retries: int = Field(default=0, ge=0, le=32767)
     schema_valid: bool | None = None

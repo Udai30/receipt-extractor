@@ -32,9 +32,43 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M0.R — done · next: M0.4 |
-| Last verified gate run | 2026-10-22: ruff check + format, mypy, pytest 116 passed / 4 live skipped, pip-audit — all green |
+| Current task | M0.4 — done · next: M1.1 |
+| Last verified gate run | 2026-10-22 (M0.4): ruff check + format, mypy, pytest 178 passed / 5 skipped (4 live, 1 symlink), pip-audit — all green |
 | Pending human actions | API keys in `.env`; delete the v1 DB lines from `.env`; see the entries below |
+
+---
+
+## 2026-10-22 — M0.4 · Evaluation runner, reports and prediction import (lean)
+
+**Done:**
+- Verified M0.R first: no DB code/deps, `llm/` intact, `eval/` was an empty stub; gates green (116 passed). Reused `llm.errors.BudgetExhaustedError` (pause), `llm.errors.sanitize_error_text` (error rows) and `llm.sinks.LLM_CALLS_FILENAME` (tasks get `runs/<run_id>/llm_calls.jsonl` via `CaseContext`).
+- New package `src/receipt_extractor/eval/`:
+  - `config.py`: strict Pydantic `RunConfig` (variant, task + params, dataset, sample ids/size/seed, models, metrics, primary metric, pass threshold, seed, bootstrap, concurrency, case timeout, runs_dir); `yaml.safe_load`, 1 MB cap, unknown keys rejected. Run id = `<variant>-<12 hex>` of SHA-256(resolved config + dataset manifest hash).
+  - `paths.py`: every config/CLI path resolved with symlinks followed and confined (configs → `configs/`, datasets/imports → `data/`, runs → `runs/`, reports → `reports/`).
+  - `runner.py`: queue of size `concurrency` + `concurrency` workers, immediate flushed JSONL append, resume by case id, partial-last-line repair, per-case exception → `status=error` (sanitised message, no traceback), per-case timeout, `BudgetExhaustedError` → `paused`, per-run OS file lock (msvcrt/fcntl; released by the OS on crash), `summary.json` on completion, `manifest.json` at start (git SHA read from `.git` files, package versions, dataset hashes).
+  - `metrics.py`: registry with `Metric.compute(prediction, gold)` on stored JSON forms, `exact_match` built in, seeded percentile bootstrap, linear-interpolation quantiles.
+  - `summary.py`, `report.py` (`results.csv|md`, `primary_metric.png`, `cost_per_1k.png`; `failures.csv` keeping hand labels; spreadsheet-formula neutralising), `importer.py` (Kaggle `manifest.json` + `predictions.jsonl` → scored run dir), `datasets.py` (`synthetic`, `jsonl` with byte-offset index), `tasks.py` (task registry, `CaseContext`/`CaseOutput`), `toy.py` + `configs/runs/toy.yaml`.
+- CLI: `eval run --config … [--concurrency N]` (exit 0 completed / 3 paused / 130 interrupted / 1 error), `eval import-predictions <dir>`, `report build`, `report failures [--run-id …]`.
+- Tests (`tests/unit/eval/`, 62 new): resume skips finished ids after a simulated crash; partial last line cut on resume; case exception → `status=error`, run continues, key redacted; budget pause → resume; concurrency bound; in-memory cases ≤ 2 × concurrency over 200 cases; timeout → error; second session refused by the lock; bootstrap CI deterministic with a fixed seed (and different with another seed); summary counts errors as 0 and dedupes; fake Kaggle import → valid run dir (20 rows, missing/errored cases, $0, kaggle block, idempotent re-import), malformed imports rejected; path traversal (`..`, absolute, other drive, `configs/`↔`data/` crossing, runs_dir escape, import dir, report `--out`; symlink case skips on Windows without privilege); `!!python/object` YAML rejected; CLI acceptance (interrupt → resume → `reports/results.csv`).
+- Gates: `ruff check` clean, `ruff format --check` clean (53 files), `mypy src` clean (30 files), `pytest -q` **178 passed, 5 skipped** (4 live, 1 symlink), `pip-audit` no known vulnerabilities. Coverage of `eval/`: 91 %.
+- **Acceptance evidence** (scratch project dir, real process): toy config with 300 ms/case, concurrency 1, process **SIGKILLed after 11 rows** → re-run: `20/20 done (9 this time, 0 errors)`, 20 unique case ids, `exact_match 0.7500 [0.5500, 0.9500]` — identical to an uninterrupted run of the same config → `report build` wrote `results.csv` row `toy,toy,synthetic,toy-6fdb552f8696,20,exact_match,0.7500,0.5500,0.9500,306,309,0.001900,1,`. Charts inspected visually.
+- Security: safe_load only; no pickle/eval; strict schemas with size caps on config (1 MB), JSON files and JSONL lines (16 MB); paths confined after symlink resolution; error text sanitised; CSV formula injection neutralised; run lock prevents interleaved writers. No model calls in M0.4, so the Gemini/user-upload invariant is untouched.
+- Performance: runner memory O(concurrency) for cases/results; O(n) only for case-id strings (sample + finished set). Summary/report keep one compact record per case (needed for bootstrap/percentiles), never predictions. Bootstrap is O(resamples × n) (1000 × 100 ≈ instant).
+**Files:** added `src/receipt_extractor/eval/{errors,paths,io,records,datasets,config,metrics,tasks,toy,summary,runner,importer,report}.py`, `configs/runs/toy.yaml`, `tests/unit/eval/{__init__,conftest,test_runner,test_config_paths,test_metrics_summary,test_import_report,test_cli_eval}.py`; modified `src/receipt_extractor/cli.py`, `pyproject.toml`, `uv.lock` (matplotlib 3.11.2 + numpy, pillow, kiwisolver, …), `TRD.md` §S4, `APPFLOW.md` J3/§S1/§S3, `BACKEND_SCHEMA.md` §S2/§S3, `UI_UX_DESIGN.md`, `IMPLEMENTATION_PLAN.md` (command names in M2.3/M2.4/M3.1 only; no reordering), `README.md`, `.gitignore`, `WORKLOG.md`.
+**Decisions:**
+- CLI names: `report` stays a group (M0.1), so the commands are `report build`, `report failures` and `eval import-predictions`; TRD/APPFLOW/plan updated.
+- `concurrency` and `runs_dir` are not part of the run id (they do not change what is measured), so a resume with another concurrency continues the same run.
+- Error rows count as 0 for every metric in the summary (otherwise errors flatter a variant); `n_errors` is reported next to it. Error rows stay "finished" on resume (spec: resume skips finished ids); only budget pauses leave cases to re-run.
+- Run id is a hash, but `llm.CallTags.run_id` is a UUID: `CaseContext.run_uuid = uuid5(namespace, run_id)` bridges them without touching `llm/`.
+- Reports show the latest completed run per (variant, dataset, split); paused runs (no `summary.json`) never appear.
+- Kaggle imports: $0 list cost (TRD §S5), GPU-seconds in the manifest and the report notes; selected cases without a prediction become error rows so a partial notebook run cannot score a smaller sample.
+- Charts: matplotlib (Agg, imported lazily), dot + CI whisker and single-series bars in the dataviz reference palette; no dual axes.
+- Added runtime dependency `matplotlib` (TRD §S4 requires PNG charts). No global installs.
+- `.gitignore`: `data/` and `runs/` anchored to the root (`/data/`, `/runs/`); the unanchored `runs/` also ignored `configs/runs/`, which holds the committed run configs (TRD §S2).
+**Open:**
+- `failures.csv` keeps rows of runs no longer reported (to protect hand labels); prune by hand if needed.
+- Running `configs/runs/toy.yaml` inside this checkout and then `report build` would add a `toy` row to the committed `reports/`; the acceptance run was done in a scratch directory, so `reports/` is unchanged.
+- Nothing committed.
 
 ---
 

@@ -4,8 +4,8 @@
 !.env.example
 
 # Data, run artefacts, caches (populated by CLI commands, never committed)
-data/
-runs/
+/data/
+/runs/
 .cache/
 
 # Python / tooling

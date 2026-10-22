@@ -30,7 +30,7 @@ B's column shows "Vision model runs on sample receipts only (privacy)".
 
 ### J3 — Developer reproduces
 `cli data prepare` → `cli eval run --config configs/runs/a.yaml` (and `a-naive`, `b`) → optional
-Kaggle notebook + `cli import-predictions` → `cli report` → `cli failures`.
+Kaggle notebook + `cli eval import-predictions` → `cli report build` → `cli report failures`.
 
 ## 2. System flow — extraction
 
@@ -75,11 +75,12 @@ stateDiagram-v2
     Paused --> Running: same command re-run (resume skips finished case ids)
     Running --> Completed: all cases done → summary.json + manifest.json
     Running --> Failed: unrecoverable error (bad config, missing data)
-    Completed --> Reported: cli report → reports/results.csv|md + charts
+    Completed --> Reported: cli report build → reports/results.csv|md + charts
     Reported --> [*]
 ```
 
-Kaggle variants join at `Completed` through `cli import-predictions`.
+Kaggle variants join at `Completed` through `cli eval import-predictions`. Exit codes of
+`cli eval run`: 0 completed, 3 paused (budget), 130 interrupted (Ctrl+C), 1 config/data error.
 
 ## S2. LLM call flow (shared)
 
@@ -105,6 +106,6 @@ flowchart LR
 
 ## S3. Results viewing (shared)
 
-1. `cli report` writes `reports/results.csv` (one row per variant × subset) and `reports/*.png`.
+1. `cli report build` writes `reports/results.csv` (one row per variant × subset) and `reports/*.png`.
 2. The Space's results tab reads those committed files — no live recomputation, no database.
 3. The failures tab reads `reports/failures.csv` (hand-labelled `failure_label`, `note`).

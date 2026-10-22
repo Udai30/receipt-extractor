@@ -170,10 +170,22 @@ rename the package.
 - At the end it writes `summary.json` (metrics with 95 % bootstrap CIs where meaningful, latency
   p50/p95, tokens, list cost per 1k) and `manifest.json` (git SHA if available, package versions,
   dataset hash, resolved config).
-- `cli report` rebuilds `reports/results.csv`, `reports/results.md` and the charts from **all**
-  finished runs; `cli failures` exports failed cases to `reports/failures.csv` for hand-labelling.
-- `cli import-predictions <dir>` turns Kaggle notebook outputs into a normal run directory, so GPU
-  variants sit in the same table as CPU and API variants.
+- `cli report build` rebuilds `reports/results.csv`, `reports/results.md` and the charts
+  (`primary_metric.png`, `cost_per_1k.png`) from **all** completed runs (latest run per variant ×
+  dataset split); `cli report failures` exports `fail`/`error` cases to `reports/failures.csv` for
+  hand-labelling and keeps existing labels on re-export.
+- `cli eval import-predictions <dir>` turns Kaggle notebook outputs (`data/imports/<name>/`:
+  `manifest.json` + `predictions.jsonl`, BACKEND_SCHEMA §S2) into a normal, scored run directory,
+  so GPU variants sit in the same table as CPU and API variants.
+- Implementation (M0.4, `src/receipt_extractor/eval/`): `config.py` (schema + run id; `concurrency`
+  and `runs_dir` are not part of the run id), `runner.py` (queue of size `concurrency` → at most
+  2 × concurrency cases in memory; per-run OS file lock; a partial last line from a crash is cut
+  on resume; `BudgetExhaustedError` → `paused`, exit code 3), `metrics.py` (registry,
+  percentile bootstrap seeded by `"<seed>:<metric>"`), `summary.py`, `report.py`, `importer.py`,
+  `datasets.py` (`synthetic` and `jsonl` kinds; CORD adds its own in M1.1), `toy.py`
+  (`configs/runs/toy.yaml`, no model calls). Error rows count as 0 for every metric.
+- Paths named by configs and CLI options are resolved (symlinks followed) and confined:
+  configs → `configs/`, datasets and imports → `data/`, run dirs → `runs/`, reports → `reports/`.
 
 ## S5. Measurement rules
 

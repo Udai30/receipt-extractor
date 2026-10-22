@@ -29,7 +29,17 @@ See [TRD.md](TRD.md) §2.
 
 ## Evaluation
 
-See [TRD.md](TRD.md) §5.
+See [TRD.md](TRD.md) §5 and §S4. Every experiment is a resumable run; re-running the same
+command after a crash, Ctrl+C or an exhausted free-tier budget continues where it stopped.
+
+```powershell
+uv run receipt_extractor eval run --config configs/runs/<variant>.yaml   # → runs/<run_id>/
+uv run receipt_extractor eval import-predictions data/imports/<name>     # Kaggle outputs
+uv run receipt_extractor report build                                    # → reports/results.csv|md + charts
+uv run receipt_extractor report failures                                 # → reports/failures.csv
+```
+
+`configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call.
 
 ## Limitations
 

@@ -1,0 +1,25 @@
+# Toy run (M0.4 acceptance): 20 synthetic cases through the `toy` task — no model calls.
+# Checks the runner, resume and reports end to end:
+#   uv run receipt_extractor eval run --config configs/runs/toy.yaml
+# Do not run it in the real project checkout before `report build` unless you want a toy row
+# in reports/results.csv.
+variant: toy
+task: toy
+params:
+  error_rate: 0.2          # share of cases answered wrong on purpose (seeded per case id)
+  raise_ids: [toy-00007]   # this case raises, to show `status = error` rows
+dataset:
+  kind: synthetic
+  name: toy
+  split: synthetic
+  size: 20
+  seed: 0
+sample:
+  seed: 0                  # no ids/size: all 20 cases
+metrics: [exact_match]
+primary_metric: exact_match
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 4

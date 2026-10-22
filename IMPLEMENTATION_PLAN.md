@@ -148,7 +148,7 @@ After MF.1: the database, API and Docker work removed in M0.R is tracked as Futu
 
 **Scope:**
 - Run configs for `a-naive`, `a`, `b` on the 100 test ids; Gemini spread across days if its RPD requires (plan in WORKLOG).
-- `cli report` → `reports/results.csv|md`, F1 and cost charts.
+- `cli report build` → `reports/results.csv|md`, F1 and cost charts.
 
 **Done when:**
 - `reports/results.csv` has all three variants on the same 100 ids with CIs, p50/p95 and $/1k.
@@ -159,7 +159,7 @@ After MF.1: the database, API and Docker work removed in M0.R is tracked as Futu
 
 **Scope:**
 - `notebooks/qwen_vl_cord.ipynb` (pinned versions, T4, same prompt and schema, writes predictions + manifest + GPU seconds).
-- `cli import-predictions data/imports/qwen_vl` → run dir → report row `C`.
+- `cli eval import-predictions data/imports/qwen_vl` → run dir → report row `C`.
 
 **Done when:**
 - Notebook ready; human action logged; after the human's run, row `C` exists.
@@ -172,7 +172,7 @@ After MF.1: the database, API and Docker work removed in M0.R is tracked as Futu
 **Objective:** Know why each pipeline fails and show what one fix bought.
 
 **Scope:**
-- `cli failures` export; human + agent label 20–30 failures (OCR misread, wrong item split, hallucinated item, number format, other).
+- `cli report failures` export; human + agent label 20–30 failures (OCR misread, wrong item split, hallucinated item, number format, other).
 - Pick the biggest cause, implement one fix (validated on the validation split), re-run affected variants on test, record before/after.
 
 **Done when:**

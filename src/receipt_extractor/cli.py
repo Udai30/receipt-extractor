@@ -7,7 +7,8 @@ works without a ``.env`` file.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -106,6 +107,140 @@ def llm_ping(
     ]
     for label, value in rows:
         typer.echo(f"{label:<12} {value}")
+
+
+EXIT_PAUSED = 3
+EXIT_INTERRUPTED = 130
+
+
+def _echo_outcome(outcome: Any) -> None:
+    """Print a :class:`~receipt_extractor.eval.runner.RunOutcome` as aligned rows."""
+    rows = [
+        ("run id", outcome.run_id),
+        ("status", outcome.status),
+        (
+            "cases",
+            f"{outcome.previously_done + outcome.executed}/{outcome.total} done "
+            f"({outcome.executed} this time, {outcome.errors} errors)",
+        ),
+        ("run dir", outcome.run_dir.as_posix()),
+    ]
+    summary = outcome.summary
+    if summary is not None:
+        primary = summary.metrics[summary.primary_metric]
+        value = "n/a" if primary.value is None else f"{primary.value:.4f}"
+        if primary.ci_low is not None and primary.ci_high is not None:
+            value += f" [{primary.ci_low:.4f}, {primary.ci_high:.4f}]"
+        rows.append((summary.primary_metric, value))
+    for label, text in rows:
+        typer.echo(f"{label:<12} {text}")
+
+
+@eval_app.command("run")
+def eval_run(
+    config: str = typer.Option(
+        ..., "--config", "-c", help="Run config under configs/ (e.g. configs/runs/toy.yaml)."
+    ),
+    concurrency: int | None = typer.Option(
+        None, "--concurrency", min=1, max=64, help="Override the config's concurrency."
+    ),
+) -> None:
+    """Run (or resume) an evaluation; results stream to runs/<run_id>/results.jsonl."""
+    import asyncio  # noqa: PLC0415 - keep `--help` light
+
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.runner import execute_run, prepare_run  # noqa: PLC0415
+    from receipt_extractor.eval.tasks import build_task  # noqa: PLC0415
+
+    try:
+        prepared = prepare_run(config, Path.cwd())
+        task = build_task(prepared.config.task, prepared.config.params)
+        outcome = asyncio.run(execute_run(prepared, task, concurrency=concurrency))
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    except KeyboardInterrupt:
+        typer.echo(
+            "interrupted: finished cases are saved; re-run the same command to resume", err=True
+        )
+        raise typer.Exit(code=EXIT_INTERRUPTED) from None
+    _echo_outcome(outcome)
+    if outcome.status == "paused":
+        typer.echo(f"paused: {outcome.paused_reason}", err=True)
+        raise typer.Exit(code=EXIT_PAUSED)
+
+
+@eval_app.command("import-predictions")
+def eval_import_predictions(
+    directory: str = typer.Argument(
+        ..., help="Kaggle output directory under data/ (manifest.json + predictions.jsonl)."
+    ),
+) -> None:
+    """Turn Kaggle notebook outputs into a normal, scored run directory."""
+    import asyncio  # noqa: PLC0415
+
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.importer import import_predictions  # noqa: PLC0415
+
+    try:
+        outcome = asyncio.run(import_predictions(directory, Path.cwd()))
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    _echo_outcome(outcome)
+
+
+def _report_dirs(runs_dir: str, out_dir: str) -> tuple[Path, Path]:
+    from receipt_extractor.eval.paths import REPORTS_DIR, RUNS_DIR, confine  # noqa: PLC0415
+
+    root = Path.cwd()
+    return confine(runs_dir, root, [RUNS_DIR]), confine(out_dir, root, [REPORTS_DIR])
+
+
+@report_app.command("build")
+def report_build(
+    runs_dir: str = typer.Option("runs", "--runs-dir", help="Directory of run dirs."),
+    out_dir: str = typer.Option("reports", "--out", help="Report directory."),
+) -> None:
+    """Rebuild reports/results.csv, results.md and charts from all completed runs."""
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.report import build_reports  # noqa: PLC0415
+
+    try:
+        runs, out = _report_dirs(runs_dir, out_dir)
+        result = build_reports(runs, out)
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(f"{result.rows} run(s) reported")
+    for path in result.files:
+        typer.echo(f"wrote {path.relative_to(Path.cwd().resolve()).as_posix()}")
+
+
+@report_app.command("failures")
+def report_failures(
+    runs_dir: str = typer.Option("runs", "--runs-dir", help="Directory of run dirs."),
+    out_dir: str = typer.Option("reports", "--out", help="Report directory."),
+    run_id: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--run-id", help="Export these runs instead of the reported ones (repeatable)."
+        ),
+    ] = None,
+) -> None:
+    """Export fail/error cases to reports/failures.csv, keeping existing hand labels."""
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.report import export_failures  # noqa: PLC0415
+
+    try:
+        runs, out = _report_dirs(runs_dir, out_dir)
+        path, count = export_failures(runs, out, run_ids=run_id or ())
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        f"{count} failure(s) exported to {path.relative_to(Path.cwd().resolve()).as_posix()}"
+    )
 
 
 def _version_callback(value: bool) -> None:

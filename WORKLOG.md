@@ -32,9 +32,39 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M1.1 — done · next: M1.2 |
-| Last verified gate run | 2026-10-22 (M1.1): ruff check + format, mypy, pytest 315 passed / 5 skipped (4 live, 1 symlink), pip-audit — all green |
+| Current task | M1.2 — done · next: M1.3 |
+| Last verified gate run | 2026-10-22 (M1.2): ruff check + format, mypy, pytest 367 passed / 5 skipped (4 live, 1 symlink), pip-audit — all green |
 | Pending human actions | API keys in `.env`; delete the v1 DB lines from `.env`; see the entries below |
+
+---
+
+## 2026-10-22 — M1.2 · Field-level scorer with order-insensitive item matching
+
+**Done:**
+- Verified M1.1 first: commit `a53a775`, its WORKLOG entry, `core/receipt.py` + `core/amounts.py`, the `cord` dataset kind, `data/cord/` prepared (100 test + 100 validation gold); gates green at start (315 passed). Reused `Receipt` validation (and through it `parse_amount`) as the only normaliser, the metric registry, `canonical_json`, the task registry and the runner/importer.
+- `eval/scorer.py`: `score_receipt(prediction, gold)` on the stored JSON forms. Prediction = `ExtractionResult` (its `receipt`) or a bare `Receipt`; anything that does not validate → `valid_json = 0`, scored as an empty receipt (never raises; invalid gold raises `ValueError`). Scalars `subtotal`/`tax`/`total`: `Decimal` equality after validation (TP / FP+FN / FP / FN / n/a). Items: Hungarian (`scipy.optimize.linear_sum_assignment`) on one lexicographic weight — full matches (name similarity ≥ 0.8 **and** equal price) ≻ name-only ≻ price-only ≻ Σ similarity; names NFKC + casefold + collapsed whitespace, rapidfuzz Indel ratio. Per-case `field_f1` = micro F1 over items + scalars.
+- Registry metrics (bootstrap CIs, loaded lazily on first `get_metric`/`metric_names`): `field_f1`, `items_precision`, `items_recall`, `items_f1`, `subtotal_f1`, `tax_f1`, `total_f1`, `valid_json`, `reconcile`. Metrics may offer `explain()`; `runner.score_case` now also returns the scorer details, so the runner **and** the Kaggle importer write `details.field_scores` + `details.item_matches` (BACKEND_SCHEMA §1.3) next to `details.metrics`. One score per case: the metrics share an 8-entry LRU cache keyed by canonical JSON.
+- `core/reconcile.py`: Σ items = subtotal (when printed) and subtotal (or Σ items) + tax = total, or subtotal = total with tax included; tolerance max(0.01, 0.5 % of total). Shared with M2.2's `needs_review`. Chosen from evidence on the gold: tolerance 0 → 79/100 test receipts reconcile, 0.5 %/1 %/2 % → 82 (no gain beyond 0.5 %), plus the tax-included reading → 84. The other 16 print service charges, discounts or rounding the schema has no field for (e.g. test-0004 discount, test-0014 service charge).
+- `eval/oracle.py`: `gold` task (prediction = the case's gold, no params) + `configs/runs/gold.yaml` (CORD test, all 9 metrics, primary `field_f1`).
+- **Acceptance evidence:** `uv run receipt_extractor eval run --config configs/runs/gold.yaml` → run `gold-9988f5dc0330`, 100/100, 0 errors, `field_f1 1.0000 [1.0000, 1.0000]`, 100 pass. `uv run receipt_extractor report build` → `reports/results.csv|md` + charts: `field_f1`, `items_f1`, `items_precision`, `items_recall`, `subtotal_f1` (n = 65), `tax_f1` (n = 41), `total_f1`, `valid_json` all **1.0000**; `reconcile` **0.8400** (the gold's own arithmetic, see above; not a comparison with gold). No row's `details.item_matches` has an unmatched item.
+- Tests (52 new): `tests/unit/eval/test_scorer.py` (40) — hand-built **perfect, split item, merged items, hallucinated item, reordered items**, missing item, amount normalisation (`Rp 100.000` = `100000`), name noise, wrong price vs wrong name, duplicates one-to-one, full match preferred over name similarity and over two name-only pairs, empty item lists, the 5 scalar cases, `ExtractionResult` vs bare `Receipt`, 9 invalid prediction shapes, invalid gold; gold-vs-gold on the 3 real CORD fixtures and as a Hypothesis property (150 random receipts, items shuffled → 1.0); order-insensitivity + bounds property; registry and `case_details` shape; runner end to end (`jsonl` dataset + `gold` task → details written, summary 1.0); the 500 × 500 worst case. `tests/unit/core/test_reconcile.py` (12) — tax on top/included, no subtotal, discount, service charge, missing item, empty, signed diffs, tolerance edge.
+- Mutation check (temporary edits, reverted): ignoring the price in a match → 2 tests fail. Removing the full-match tier from the weight first survived every test, so `test_one_full_match_beats_two_name_only_pairs` was added; it now fails on that mutant as it should.
+- Gates: `ruff check` clean, `ruff format --check` clean (71 files), `mypy src` clean (39 files, strict, with `scipy-stubs`), `pytest -q` **367 passed, 5 skipped** (4 live, 1 symlink), `pip-audit` no known vulnerabilities. Coverage: `eval/scorer.py` 98 %, `core/reconcile.py` and `eval/oracle.py` 100 %.
+- Security: no new external input or trust boundary; the scorer reads predictions/gold already in memory. Predictions are untrusted model output: they go through the strict `Receipt` model (≤ 500 items, names ≤ 300 chars, |amount| < 10¹⁵), never `eval`/pickle; malformed values become `valid_json = 0` instead of exceptions. Details store indices and similarities only (names stay in `prediction`/`gold`). No model calls, so the Gemini/user-upload invariant is untouched.
+- Performance: a typical receipt (11 items) scores in 0.13 ms; the schema's worst case (500 × 500 items, 300-char names) in 0.28 s (rapidfuzz `cdist` + scipy LSA, O(n³)); the 100-receipt gold run took 0.28 s wall clock. The LRU cache holds ≤ 8 scored cases.
+**Files:** added `src/receipt_extractor/core/reconcile.py`, `src/receipt_extractor/eval/{scorer,oracle}.py`, `configs/runs/gold.yaml`, `tests/unit/eval/test_scorer.py`, `tests/unit/core/test_reconcile.py`, `reports/{results.csv,results.md,primary_metric.png,cost_per_1k.png}`; modified `src/receipt_extractor/eval/{metrics,runner,importer,tasks}.py`, `pyproject.toml` + `uv.lock` (`scipy` 1.18.1, `rapidfuzz` 3.14.6; dev `scipy-stubs` 1.18.1.1), `TRD.md` §4.4/§S1/§S4, `BACKEND_SCHEMA.md` §1.3, `PRD.md` §5 (how `field_f1` is averaged), `README.md`, `WORKLOG.md`.
+**Decisions:**
+- `scipy` for the Hungarian step rather than a hand-written one (reference implementation, rectangular matrices, O(n³)); `rapidfuzz` over `difflib` because the schema allows 500 × 500 items with 300-char names, where `difflib` would take seconds to minutes.
+- A match needs name **and** price, so splits and merges lose exactly the lines that no longer agree. No partial credit (e.g. split prices summing to the gold price): strict and predictable for every variant. Near misses stay visible in `item_matches` (`name_ok`/`price_ok`) for failure analysis (M3.1).
+- `field_f1` is micro F1 within a receipt, then averaged over receipts: the registry aggregates per-case values and the bootstrap CI needs one number per receipt. PRD §5 and TRD §4.4 updated to say so. Per-field F1 is likewise per receipt (1/0, `None` when the field is absent on both sides).
+- Invalid output is scored as an empty receipt (0 on every field the gold has) instead of `None`, so an invalid answer can never raise an average.
+- `reconcile` judges the prediction, not agreement with gold, so gold-vs-gold shows 0.84 there; "1.0 everywhere" holds for every comparative metric. Accepting tax-included totals follows the CORD receipts (e.g. test-0000: subtotal 60000 = total, tax 5455 shown).
+- `item_matches` stores indices, not names (names are already in the row).
+- The `gold` row in `reports/results.csv` is the committed calibration row and stays next to the real variants (it shows the scorer's ceiling and the gold's reconcile rate).
+**Open:**
+- `reports/` now holds its first committed outputs (gold row only); M2.3 adds `A-naive`, `A`, `B`.
+- The 0.8 name threshold is untested against real pipeline output; revisit in M3.1 on validation if OCR spelling misses dominate (changing it means re-scoring stored runs, no new model calls).
+- No human action required for M1.2. Nothing committed.
 
 ---
 

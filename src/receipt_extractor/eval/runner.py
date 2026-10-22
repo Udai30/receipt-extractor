@@ -54,7 +54,7 @@ from receipt_extractor.eval.io import (
     read_json_object,
     repair_tail,
 )
-from receipt_extractor.eval.metrics import Metric, get_metric
+from receipt_extractor.eval.metrics import Metric, case_details, get_metric
 from receipt_extractor.eval.paths import RUNS_DIR, confine
 from receipt_extractor.eval.records import (
     LOCK_FILENAME,
@@ -160,12 +160,16 @@ def prepare_run(config_path: str | Path, root: Path) -> PreparedRun:
 
 def score_case(
     prediction: Any, gold: Any, config: RunConfig, metrics: Mapping[str, Metric]
-) -> tuple[CaseStatus, float | None, dict[str, float | None]]:
-    """Per-case metric values, the primary score and pass/fail against ``pass_threshold``."""
+) -> tuple[CaseStatus, float | None, dict[str, Any]]:
+    """Pass/fail against ``pass_threshold``, the primary score and the scorer's details.
+
+    The details are the metrics' ``explain`` entries plus ``metrics{name: value}``; they
+    override same-named entries a task or an import supplies, so the scorer has the last word.
+    """
     values = {name: metric.compute(prediction, gold) for name, metric in metrics.items()}
     score = values[config.primary_metric]
     status: CaseStatus = "pass" if score is not None and score >= config.pass_threshold else "fail"
-    return status, score, values
+    return status, score, {**case_details(prediction, gold, metrics), "metrics": values}
 
 
 def error_message(exc: BaseException) -> str:
@@ -333,14 +337,14 @@ async def execute_run(
                 if not isinstance(output, CaseOutput):
                     raise TypeError("task must return a CaseOutput")
                 prediction = to_jsonable_python(output.prediction)
-                status, score, values = score_case(prediction, gold, config, metrics)
+                status, score, scored = score_case(prediction, gold, config, metrics)
                 return ResultRow(
                     case_id=case_id,
                     status=status,
                     score=score,
                     prediction=prediction,
                     gold=gold,
-                    details={**to_jsonable_python(output.details), "metrics": values},
+                    details={**to_jsonable_python(output.details), **scored},
                     latency_ms=_elapsed_ms(clock, start),
                     tokens_in=output.tokens_in,
                     tokens_out=output.tokens_out,

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from receipt_extractor.eval.datasets import Case
 from receipt_extractor.eval.errors import UnknownTaskError
 
-_BUILTIN_MODULES: Final = ("receipt_extractor.eval.toy",)
+_BUILTIN_MODULES: Final = ("receipt_extractor.eval.toy", "receipt_extractor.eval.oracle")
 
 
 @dataclass(frozen=True)

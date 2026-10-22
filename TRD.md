@@ -74,6 +74,32 @@ invalid after retries or not reconciled. Naive mode skips all of this and is rep
 Scalar fields: exact match after normalisation. Items: Hungarian matching on (name similarity, price)
 so order, splits and merges are scored fairly; report item-level P/R/F1 plus per-field F1.
 
+Implementation (M1.2): `eval/scorer.py` (pure; registry metrics), `core/reconcile.py` (shared with
+M2.2), `eval/oracle.py` (`gold` task).
+- A prediction is an `ExtractionResult` (its `receipt`) or a bare `Receipt`, in the JSON form stored
+  in `results.jsonl`. One that does not validate as `Receipt` is invalid (`valid_json = 0`) and is
+  scored as an empty receipt; scoring never raises on a prediction.
+- Scalars (`subtotal`, `tax`, `total`) compare as `Decimal` after `Receipt` validation: equal → TP,
+  wrong → FP + FN, only predicted → FP, only gold → FN, absent on both → not applicable.
+- Items: `scipy.optimize.linear_sum_assignment` over a weight that ranks, in order, full matches
+  (normalised name similarity ≥ 0.8 **and** equal price), name-only agreements, price-only
+  agreements and total name similarity. Names: NFKC + casefold + collapsed whitespace, compared with
+  rapidfuzz's normalised Indel ratio. One-to-one, so a split or merged line costs exactly the lines
+  that no longer agree. P = TP / predicted, R = TP / gold (0 when the other side has items and this
+  one has none, not applicable when both are empty). `qty`, `unit_price` and `currency` are not scored.
+- Registry metrics (all with bootstrap CIs): `field_f1` (primary: micro F1 over the receipt's items
+  and scalar fields, averaged over receipts), `items_precision`, `items_recall`, `items_f1`,
+  `subtotal_f1`, `tax_f1`, `total_f1`, `valid_json`, `reconcile`. Per-field values are per receipt
+  and averaged over the receipts where the field applies — the registry aggregates per-case means.
+- `reconcile` checks the prediction itself (Σ items = subtotal; subtotal + tax = total, or
+  subtotal = total with tax included; tolerance max(0.01, 0.5 % of total)); service charges and
+  discounts are not in the schema, so such receipts do not reconcile. The CORD test gold reconciles
+  on 84/100.
+- Metrics may offer `explain()`; the runner and importer store it as `details.field_scores` and
+  `details.item_matches` (BACKEND_SCHEMA §1.3), overriding same-named task/import details.
+- Calibration: `configs/runs/gold.yaml` scores the test gold against itself — every comparative
+  metric is 1.0 (run `gold-9988f5dc0330`).
+
 ## 5. Evaluation methodology
 
 - Benchmark: the 100-receipt CORD test split, fixed ids; tuning only on validation.
@@ -108,6 +134,7 @@ so order, splits and merges are scored fairly; report item-level P/R/F1 plus per
 | Config | Pydantic v2 + `pydantic-settings` reading `.env`; secrets as `SecretStr` |
 | LLM access | The provider layer ported from P01 (`src/<pkg>/llm/`, LiteLLM underneath) — §S3 |
 | Data | `huggingface_hub` (revision and file SHA-256 pinned) + `pyarrow` (streamed parquet); the heavier `datasets`/pandas are not needed |
+| Scoring | `scipy` (`linear_sum_assignment`, Hungarian item matching) + `rapidfuzz` (item-name similarity) |
 | Results | Files: `runs/<run_id>/*.jsonl|json` → `reports/*.csv|md|png` (committed). **No database.** |
 | UI | Gradio 5 `Blocks` in `app.py` → Hugging Face Space (Gradio SDK, free CPU) |
 | GPU work | Kaggle notebooks under `notebooks/`, versions pinned, run by the human; outputs imported by a CLI command |
@@ -189,7 +216,8 @@ rename the package.
   on resume; `BudgetExhaustedError` → `paused`, exit code 3), `metrics.py` (registry,
   percentile bootstrap seeded by `"<seed>:<metric>"`), `summary.py`, `report.py`, `importer.py`,
   `datasets.py` (`synthetic`, `jsonl` and — M1.1 — `cord` kinds), `toy.py`
-  (`configs/runs/toy.yaml`, no model calls). Error rows count as 0 for every metric.
+  (`configs/runs/toy.yaml`, no model calls); M1.2: receipt metrics in `scorer.py` (loaded on first
+  metric lookup) and the `gold` task in `oracle.py` (`configs/runs/gold.yaml`). Error rows count as 0 for every metric.
 - Paths named by configs and CLI options are resolved (symlinks followed) and confined:
   configs → `configs/`, datasets and imports → `data/`, run dirs → `runs/`, reports → `reports/`.
 

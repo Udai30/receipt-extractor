@@ -1,0 +1,2 @@
+variant,dataset,subset,run_id,sample_size,primary_metric,value,ci_low,ci_high,p50_ms,p95_ms,list_cost_usd_per_1k,n_errors,notes,items_f1,items_precision,items_recall,reconcile,subtotal_f1,tax_f1,total_f1,valid_json
+gold,cord-v2,test,gold-9988f5dc0330,100,field_f1,1.0000,1.0000,1.0000,8,12,0.000000,0,,1.0000,1.0000,1.0000,0.8400,1.0000,1.0000,1.0000,1.0000

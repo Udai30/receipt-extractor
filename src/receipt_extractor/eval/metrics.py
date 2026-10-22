@@ -3,16 +3,19 @@
 A metric scores one case: ``compute(prediction, gold) -> float | None`` on the JSON forms that
 ``results.jsonl`` stores (so run-time and imported predictions are scored identically).
 ``None`` means "not applicable to this case" and is left out of the mean. Project metrics
-(item F1, valid JSON %, … in M1.2) register themselves with :func:`register_metric`.
+register themselves with :func:`register_metric`; the receipt metrics (``eval/scorer.py``) are
+loaded on first lookup. A metric may also offer ``explain(prediction, gold) -> dict``: per-case
+entries for ``ResultRow.details`` (:func:`case_details`).
 """
 
 from __future__ import annotations
 
+import importlib
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from receipt_extractor.eval.errors import UnknownMetricError
 from receipt_extractor.eval.io import canonical_json
@@ -31,6 +34,16 @@ class Metric(Protocol):
 
 
 _REGISTRY: dict[str, Metric] = {}
+_BUILTIN_MODULES: Final = ("receipt_extractor.eval.scorer",)
+_builtins_loaded = False
+
+
+def _load_builtins() -> None:
+    global _builtins_loaded  # noqa: PLW0603 - one-time lazy registration
+    if not _builtins_loaded:
+        for module in _BUILTIN_MODULES:
+            importlib.import_module(module)
+        _builtins_loaded = True
 
 
 def register_metric(metric: Metric, *, replace: bool = False) -> Metric:
@@ -41,6 +54,7 @@ def register_metric(metric: Metric, *, replace: bool = False) -> Metric:
 
 
 def get_metric(name: str) -> Metric:
+    _load_builtins()
     try:
         return _REGISTRY[name]
     except KeyError:
@@ -49,7 +63,19 @@ def get_metric(name: str) -> Metric:
 
 
 def metric_names() -> list[str]:
+    _load_builtins()
     return sorted(_REGISTRY)
+
+
+def case_details(prediction: Any, gold: Any, metrics: Mapping[str, Metric]) -> dict[str, Any]:
+    """Merged ``explain`` entries of the metrics that have one (first metric wins a key)."""
+    details: dict[str, Any] = {}
+    for metric in metrics.values():
+        explain = getattr(metric, "explain", None)
+        if callable(explain):
+            for key, value in explain(prediction, gold).items():
+                details.setdefault(key, value)
+    return details
 
 
 @dataclass(frozen=True)

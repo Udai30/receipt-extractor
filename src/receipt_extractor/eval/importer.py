@@ -172,14 +172,14 @@ async def import_predictions(source_dir: str | Path, root: Path) -> RunOutcome:
                     tokens_out=line.tokens_out,
                 )
             else:
-                status, score, values = score_case(line.prediction, gold, config, metrics)
+                status, score, scored = score_case(line.prediction, gold, config, metrics)
                 row = ResultRow(
                     case_id=line.case_id,
                     status=status,
                     score=score,
                     prediction=line.prediction,
                     gold=gold,
-                    details={**line.details, "metrics": values},
+                    details={**line.details, **scored},
                     latency_ms=line.latency_ms,
                     tokens_in=line.tokens_in,
                     tokens_out=line.tokens_out,

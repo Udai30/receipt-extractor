@@ -59,7 +59,7 @@ comparing (one function, tested). Facts carried from the ideas doc (2026-10-22);
 
 | Metric | Definition |
 |---|---|
-| Field-level F1 (primary) | precision/recall/F1 per field (items, subtotal, tax, total), micro-averaged |
+| Field-level F1 (primary) | precision/recall/F1 per field (items, subtotal, tax, total); `field_f1` is micro-averaged over a receipt's fields and then averaged over receipts (TRD §4.4) |
 | Valid JSON % | share of receipts whose output validates against `Receipt` |
 | Reconcile % | share where line items sum to subtotal and subtotal + tax ≈ total |
 | Latency p50/p95 | per receipt, end to end |

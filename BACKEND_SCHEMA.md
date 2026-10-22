@@ -60,7 +60,12 @@ Decimals have 1–2 digits and groups exactly three; anything else raises `Amoun
 ocr_text_chars, stage_latency_ms{ocr, llm, validate}`.
 
 ### 1.3 `ResultRow.details`
-`field_scores{items_p, items_r, items_f1, subtotal_ok, tax_ok, total_ok}`, `item_matches`.
+`field_scores{items_p, items_r, items_f1, subtotal_ok, tax_ok, total_ok, field_f1, valid_json,
+reconciled}`, `item_matches{pairs[{gold, pred, name_similarity, name_ok, price_ok, match}],
+unmatched_gold[], unmatched_pred[]}` (indices into the gold / predicted `items`), plus
+`metrics{name: value}`. Written by the scorer (`eval/scorer.py`, M1.2) for every scored row; P/R/F1
+are `null` when not applicable (TRD §4.4). Pairs are assigned items that agree on the name or the
+price; `match` = both.
 
 ## 2. Files
 

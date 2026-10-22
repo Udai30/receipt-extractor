@@ -1,0 +1,28 @@
+# Gold vs gold (M1.2 acceptance): the CORD test gold scored against itself — no model calls.
+# Every comparative metric must be 1.0; `reconcile` is a property of the prediction (here the
+# printed receipt), so it shows how often the gold itself adds up.
+#   uv run receipt_extractor eval run --config configs/runs/gold.yaml
+#   uv run receipt_extractor report build
+variant: gold
+task: gold
+dataset:
+  kind: cord
+  split: test
+sample:
+  seed: 0                  # no ids/size: all 100 test receipts
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 4

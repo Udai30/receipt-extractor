@@ -42,6 +42,8 @@ uv run receipt_extractor report failures                                 # → r
 ```
 
 `configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call.
+`configs/runs/gold.yaml` scores the CORD test gold against itself (the scorer's calibration: every
+comparative metric is 1.0; `reconcile` 0.84 is how often the printed receipts add up).
 
 CORD-v2 (`naver-clova-ix/cord-v2`, CC-BY-4.0) is downloaded at a pinned revision; the three
 records in `tests/fixtures/cord/` are excerpts of it under the same licence.

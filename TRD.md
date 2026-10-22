@@ -55,6 +55,11 @@ days (the budget tracker pauses and resumes) and log the plan in WORKLOG.
 ### 4.1 `Receipt` schema and normaliser
 Pydantic models with `Decimal` money; one `parse_amount()` handling `1.000`, `1,000.50`, `Rp`
 prefixes and blanks. CORD ground truth (`menu`, `sub_total`, `total`) maps into the same schema.
+Implementation (M1.1): `core/amounts.py` (`parse_amount`, `amount_format`), `core/receipt.py`
+(`Receipt`, `Item`; money serialised as strings), `data/cord_mapping.py` (pure gold mapping, rules
+in BACKEND_SCHEMA §1.1), `data/cord.py` (`cli data prepare`: pinned revision + pinned per-file
+SHA-256, streamed parquet → images, gold, manifest), `data/stats.py` (`cli data stats`). The eval
+runner reads a prepared split through the `cord` dataset kind (`{kind: cord, split: test}`).
 
 ### 4.2 Pipeline protocol
 `extract(image) -> ExtractionResult(receipt | None, raw_text, attempts, stage_latency, tokens, cost)`.
@@ -102,7 +107,7 @@ so order, splits and merges are scored fairly; report item-level P/R/F1 plus per
 | CLI | Typer — every experiment and report is one documented command |
 | Config | Pydantic v2 + `pydantic-settings` reading `.env`; secrets as `SecretStr` |
 | LLM access | The provider layer ported from P01 (`src/<pkg>/llm/`, LiteLLM underneath) — §S3 |
-| Data | Hugging Face `datasets` (revision pinned), pandas, pyarrow |
+| Data | `huggingface_hub` (revision and file SHA-256 pinned) + `pyarrow` (streamed parquet); the heavier `datasets`/pandas are not needed |
 | Results | Files: `runs/<run_id>/*.jsonl|json` → `reports/*.csv|md|png` (committed). **No database.** |
 | UI | Gradio 5 `Blocks` in `app.py` → Hugging Face Space (Gradio SDK, free CPU) |
 | GPU work | Kaggle notebooks under `notebooks/`, versions pinned, run by the human; outputs imported by a CLI command |
@@ -117,6 +122,7 @@ so order, splits and merges are scored fairly; report item-level P/R/F1 plus per
 │   ├── core/                # domain logic — pure, typed, no I/O at import time
 │   ├── llm/                 # provider client, cache, rate limiter, pricing (§S3) — ported from P01
 │   ├── eval/                # run configs, runner, metrics, reports (§S4)
+│   ├── data/                # dataset download + normalisation to gold files (`cli data …`)
 │   ├── ui/                  # Gradio Blocks + theme (no business logic in callbacks)
 │   └── cli.py               # Typer CLI: data / eval / report / llm
 ├── app.py                   # HF Space entry point → receipt_extractor.ui
@@ -182,7 +188,7 @@ rename the package.
   2 × concurrency cases in memory; per-run OS file lock; a partial last line from a crash is cut
   on resume; `BudgetExhaustedError` → `paused`, exit code 3), `metrics.py` (registry,
   percentile bootstrap seeded by `"<seed>:<metric>"`), `summary.py`, `report.py`, `importer.py`,
-  `datasets.py` (`synthetic` and `jsonl` kinds; CORD adds its own in M1.1), `toy.py`
+  `datasets.py` (`synthetic`, `jsonl` and — M1.1 — `cord` kinds), `toy.py`
   (`configs/runs/toy.yaml`, no model calls). Error rows count as 0 for every metric.
 - Paths named by configs and CLI options are resolved (symlinks followed) and confined:
   configs → `configs/`, datasets and imports → `data/`, run dirs → `runs/`, reports → `reports/`.

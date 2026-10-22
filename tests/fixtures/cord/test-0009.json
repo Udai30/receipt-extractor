@@ -1,0 +1,26 @@
+{
+  "source": "naver-clova-ix/cord-v2@7f0115a4b758a71d6473b8d085751692da2fef98 test row 9 (CC-BY-4.0)",
+  "meta": {
+    "version": "2.0.0",
+    "split": "test",
+    "image_id": 9,
+    "image_size": {
+      "width": 576,
+      "height": 864
+    }
+  },
+  "gt_parse": {
+    "menu": {
+      "nm": "Bumbu Kaldu Ayam 1",
+      "unitprice": "36000",
+      "price": "36000"
+    },
+    "sub_total": {
+      "subtotal_price": "36000"
+    },
+    "total": {
+      "cashprice": "50000",
+      "changeprice": "14000"
+    }
+  }
+}

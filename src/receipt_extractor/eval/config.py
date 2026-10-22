@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from receipt_extractor.eval.datasets import (
     CaseId,
+    CordDatasetSpec,
     DatasetSpec,
     JSONLDatasetSpec,
     Name,
@@ -97,7 +98,7 @@ class RunConfig(BaseModel):
 def normalise_paths(config: RunConfig, root: Path) -> RunConfig:
     """Confine config paths and rewrite them as project-relative POSIX strings."""
     dataset = config.dataset
-    if isinstance(dataset, JSONLDatasetSpec):
+    if isinstance(dataset, JSONLDatasetSpec | CordDatasetSpec):
         path = confine(dataset.path, root, [DATA_DIR])
         dataset = dataset.model_copy(update={"path": relative_posix(path, root)})
     return config.model_copy(update={"dataset": dataset})

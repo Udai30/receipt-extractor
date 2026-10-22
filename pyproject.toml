@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "huggingface-hub>=1.33",
     "litellm>=1.106.0",
     "matplotlib>=3.10",
+    "pyarrow>=21",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
     "pyyaml>=6.0.3",
@@ -26,6 +28,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "coverage>=7.16.2",
+    "hypothesis>=6.140",
     "mypy>=2.4.0",
     "pip-audit>=2.10.1",
     "pytest>=9.1.1",
@@ -67,6 +70,10 @@ strict = true
 files = ["src"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]  # ships no type information
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

@@ -33,6 +33,8 @@ See [TRD.md](TRD.md) §5 and §S4. Every experiment is a resumable run; re-runni
 command after a crash, Ctrl+C or an exhausted free-tier budget continues where it stopped.
 
 ```powershell
+uv run receipt_extractor data prepare                                    # CORD-v2 validation + test → data/cord/ (~480 MB)
+uv run receipt_extractor data stats --split test                         # items/receipt, formats, unmappable
 uv run receipt_extractor eval run --config configs/runs/<variant>.yaml   # → runs/<run_id>/
 uv run receipt_extractor eval import-predictions data/imports/<name>     # Kaggle outputs
 uv run receipt_extractor report build                                    # → reports/results.csv|md + charts
@@ -40,6 +42,9 @@ uv run receipt_extractor report failures                                 # → r
 ```
 
 `configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call.
+
+CORD-v2 (`naver-clova-ix/cord-v2`, CC-BY-4.0) is downloaded at a pinned revision; the three
+records in `tests/fixtures/cord/` are excerpts of it under the same licence.
 
 ## Limitations
 

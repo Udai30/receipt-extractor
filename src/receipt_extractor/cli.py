@@ -109,6 +109,97 @@ def llm_ping(
         typer.echo(f"{label:<12} {value}")
 
 
+_SPLITS = ("train", "validation", "test")
+_SHOWN_FORMATS = 15
+
+
+@data_app.command("prepare")
+def data_prepare(
+    split: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--split",
+            help="Split to prepare (repeatable): train, validation, test. "
+            "Default: validation and test (train is ~1.8 GB).",
+        ),
+    ] = None,
+) -> None:
+    """Download CORD-v2 (pinned revision) into data/cord/ and write gold Receipt JSON."""
+    from receipt_extractor.config import ConfigError, get_settings  # noqa: PLC0415
+    from receipt_extractor.data.cord import (  # noqa: PLC0415
+        DEFAULT_SPLITS,
+        hf_downloader,
+        prepare_cord,
+    )
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+
+    chosen = split or list(DEFAULT_SPLITS)
+    unknown = [name for name in chosen if name not in _SPLITS]
+    if unknown:
+        typer.echo(f"error: unknown split(s): {', '.join(unknown)}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        token = get_settings().hf_token
+        result = prepare_cord(
+            Path.cwd(),
+            splits=chosen,  # type: ignore[arg-type]  # checked against _SPLITS above
+            downloader=hf_downloader(token.get_secret_value() if token else None),
+            progress=typer.echo,
+        )
+    except (ConfigError, EvalError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(f"wrote {result.manifest_path.relative_to(Path.cwd().resolve()).as_posix()}")
+
+
+@data_app.command("stats")
+def data_stats(
+    split: str = typer.Option("test", "--split", help="Prepared split to describe."),
+) -> None:
+    """Items per receipt, amount formats seen and unmappable receipts of a prepared split."""
+    from receipt_extractor.data.cord import CORD_DIR  # noqa: PLC0415
+    from receipt_extractor.data.stats import split_stats  # noqa: PLC0415
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.paths import DATA_DIR, confine  # noqa: PLC0415
+
+    try:
+        stats = split_stats(confine(CORD_DIR, Path.cwd(), [DATA_DIR]), split)
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    rows = [
+        ("split", f"{stats.split} @ {stats.revision[:12]} ({stats.license})"),
+        (
+            "receipts",
+            f"{stats.n_rows} rows, {stats.n_gold} gold, {len(stats.unmappable)} unmappable",
+        ),
+        (
+            "items/rcpt",
+            f"min {stats.items_min}, median {stats.items_median:g}, "
+            f"mean {stats.items_mean:.2f}, max {stats.items_max}",
+        ),
+        ("histogram", ", ".join(f"{k}: {v}" for k, v in stats.items_histogram.items())),
+        ("subtotal", f"{stats.n_with_subtotal} of {stats.n_gold} receipts"),
+        ("tax", f"{stats.n_with_tax} of {stats.n_gold} receipts"),
+        ("items sum", f"= subtotal or total on {stats.n_reconciled} of {stats.n_gold} receipts"),
+    ]
+    for label, text in rows:
+        typer.echo(f"{label:<12} {text}")
+    typer.echo(f"amount formats seen ({len(stats.amount_formats)} distinct, most common first):")
+    for label, count in list(stats.amount_formats.items())[:_SHOWN_FORMATS]:
+        typer.echo(f"  {count:>5}  {label}")
+    if len(stats.amount_formats) > _SHOWN_FORMATS:
+        typer.echo(f"  ... {len(stats.amount_formats) - _SHOWN_FORMATS} more")
+    if stats.mapping_notes:
+        typer.echo("mapping notes:")
+        for note, count in stats.mapping_notes.items():
+            typer.echo(f"  {count:>5}  {note}")
+    if stats.unmappable:
+        typer.echo("unmappable receipts:")
+        for item in stats.unmappable:
+            typer.echo(f"  {item['id']}: {item['reason']}")
+
+
 EXIT_PAUSED = 3
 EXIT_INTERRUPTED = 130
 

@@ -40,12 +40,17 @@ def canonical_json(value: Any) -> str:
 
 def atomic_write_text(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` via a temp file + rename, so readers never see half a file."""
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` via a temp file + rename, so readers never see half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-", suffix=path.suffix)
     tmp_path = Path(tmp)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
         tmp_path.replace(path)
     except BaseException:
         tmp_path.unlink(missing_ok=True)

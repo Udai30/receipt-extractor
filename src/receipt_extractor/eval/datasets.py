@@ -8,7 +8,9 @@ concurrency. Two kinds exist so far:
 - ``jsonl`` — a file under ``data/`` with one ``{"case_id", "input", "gold"}`` object per line,
   indexed by byte offset in one streaming pass.
 
-Project datasets (CORD in M1.1) add their own kind here.
+- ``cord`` — a CORD-v2 split prepared by ``cli data prepare`` (M1.1): input is the image path
+  (project-relative) and its SHA-256, gold is the normalised ``Receipt``. Only receipts with gold
+  are cases; unmappable ones are listed by ``cli data stats``.
 """
 
 from __future__ import annotations
@@ -64,7 +66,19 @@ class JSONLDatasetSpec(BaseModel):
     path: str = Field(min_length=1, max_length=1024)
 
 
-DatasetSpec = Annotated[SyntheticDatasetSpec | JSONLDatasetSpec, Field(discriminator="kind")]
+class CordDatasetSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["cord"]
+    name: Name = "cord-v2"
+    split: Literal["train", "validation", "test"]
+    path: str = Field(default="data/cord", min_length=1, max_length=1024)
+
+
+DatasetSpec = Annotated[
+    SyntheticDatasetSpec | JSONLDatasetSpec | CordDatasetSpec, Field(discriminator="kind")
+]
+AnyDatasetSpec = SyntheticDatasetSpec | JSONLDatasetSpec | CordDatasetSpec
 
 
 class Dataset(Protocol):
@@ -173,6 +187,52 @@ class JSONLDataset:
         return case
 
 
+class CordDataset:
+    """A prepared CORD split; its manifest's per-split hash is the dataset manifest hash."""
+
+    def __init__(self, spec: CordDatasetSpec, directory: Path, root: Path) -> None:
+        from receipt_extractor.data.cord import load_manifest  # noqa: PLC0415 - avoid a cycle
+
+        self.name = spec.name
+        self.split: str = spec.split
+        self.directory = directory
+        self._root = root
+        self._manifest = load_manifest(directory)
+        self.revision: str | None = self._manifest.get("revision")
+        entry = self._manifest["splits"].get(spec.split)
+        if entry is None:
+            raise DatasetError(
+                f"CORD split {spec.split!r} is not prepared; "
+                f"run `receipt_extractor data prepare --split {spec.split}`"
+            )
+        self._hash: str = entry["hash"]
+        unmappable = {item["id"] for item in entry["unmappable"]}
+        self._ids = [case_id for case_id in entry["ids"] if case_id not in unmappable]
+
+    def manifest_hash(self) -> str:
+        return self._hash
+
+    def case_ids(self) -> list[str]:
+        return list(self._ids)
+
+    def load_case(self, case_id: str) -> Case:
+        from receipt_extractor.data.cord import read_gold  # noqa: PLC0415
+
+        if case_id not in self._ids:
+            raise DatasetError(f"case {case_id!r} is not in dataset {self.name}/{self.split}")
+        gold = read_gold(self.directory, self._manifest, case_id)
+        case = self._manifest["cases"][case_id]
+        image = confine(case["image"], self.directory, ["images"])
+        return Case(
+            case_id=case_id,
+            input={
+                "image": relative_posix(image, self._root),
+                "image_sha256": case["image_sha256"],
+            },
+            gold=gold.model_dump(mode="json"),
+        )
+
+
 def _parse_line(line: bytes, filename: str, lineno: int | None) -> Case:
     where = f"{filename}:{lineno}" if lineno is not None else filename
     try:
@@ -181,11 +241,18 @@ def _parse_line(line: bytes, filename: str, lineno: int | None) -> Case:
         raise DatasetError(f"{where}: expected {{case_id, input, gold}}") from None
 
 
-def open_dataset(spec: SyntheticDatasetSpec | JSONLDatasetSpec, root: Path) -> Dataset:
-    """Open the dataset a config names; ``jsonl`` paths are confined to ``data/``."""
+def open_dataset(spec: AnyDatasetSpec, root: Path) -> Dataset:
+    """Open the dataset a config names; ``jsonl`` and ``cord`` paths are confined to ``data/``."""
     if isinstance(spec, SyntheticDatasetSpec):
         return SyntheticDataset(spec)
     path = confine(spec.path, root, [DATA_DIR])
+    if isinstance(spec, CordDatasetSpec):
+        if not path.is_dir():
+            raise DatasetError(
+                f"CORD directory {relative_posix(path, root)} does not exist; "
+                "run `receipt_extractor data prepare`"
+            )
+        return CordDataset(spec, path, root)
     if not path.is_file():
         raise DatasetError(f"dataset file {relative_posix(path, root)} does not exist")
     return JSONLDataset(spec, path)

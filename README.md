@@ -1,6 +1,6 @@
 # Receipt-to-JSON Extractor
 
-> Photo of a receipt in, validated JSON out — with four pipelines benchmarked on accuracy, latency and cost.
+> A receipt photo goes in; validated JSON (line items, prices, totals) comes out — OCR+LLM vs a vision LLM, compared on accuracy, latency and cost.
 
 ## Results
 
@@ -15,12 +15,13 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12 (uv installs it if mis
 
 ```powershell
 uv sync                                   # creates .venv and installs locked dependencies
-Copy-Item .env.example .env               # then set POSTGRES_PASSWORD and the same value in DATABASE_URL
-docker compose up -d db                   # Postgres 16 + pgvector on 127.0.0.1:5432
-uv run alembic upgrade head               # apply migrations
+Copy-Item .env.example .env               # then set GROQ_API_KEY / GEMINI_API_KEY
 uv run receipt_extractor --help
-uv run ruff check . ; uv run mypy src ; uv run pytest -q   # integration tests need Docker running
+uv run receipt_extractor llm ping --model groq-oss-20b
+uv run ruff check . ; uv run mypy src ; uv run pytest -q
 ```
+
+No database or Docker is needed: results are files under `runs/` and `reports/`.
 
 ## Architecture
 

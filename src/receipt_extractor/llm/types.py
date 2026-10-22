@@ -1,7 +1,7 @@
 """Request/response contracts of the LLM layer (TRD §S3) and the ``llm_call`` record.
 
-``LLMCallRecord`` mirrors BACKEND_SCHEMA §S2 ``llm_call`` plus ``model_alias`` and
-``actual_cost_usd``; it is what sinks persist (JSONL during eval runs, Postgres for live API).
+``LLMCallRecord`` is BACKEND_SCHEMA §S2 ``LLMCallRecord``: what sinks persist as one line of
+``runs/<run_id>/llm_calls.jsonl`` (or keep in memory).
 Records never contain prompts, outputs or API keys.
 """
 
@@ -195,7 +195,7 @@ class EmbedResponse(_Accounting):
 
 
 class LLMCallRecord(BaseModel):
-    """One provider call (or cache hit) — BACKEND_SCHEMA §S2 ``llm_call`` / §S5 JSONL line."""
+    """One provider call (or cache hit) — one line of ``llm_calls.jsonl`` (BACKEND_SCHEMA §S2)."""
 
     model_config = _FROZEN
 

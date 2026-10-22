@@ -18,7 +18,6 @@ runner = CliRunner()
 
 @pytest.fixture
 def llm_env(clean_env: pytest.MonkeyPatch, tmp_path: Path) -> pytest.MonkeyPatch:
-    clean_env.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@127.0.0.1:5432/db")
     clean_env.setenv("LLM_MODELS_PATH", str(PROJECT_ROOT / "configs" / "models.yaml"))
     clean_env.setenv("LLM_PRICING_PATH", str(PROJECT_ROOT / "configs" / "pricing.yaml"))
     clean_env.setenv("LLM_BUDGET_PATH", str(tmp_path / "budget.json"))
@@ -86,7 +85,8 @@ def test_ping_gemini_uses_synthetic_origin(llm_env: pytest.MonkeyPatch) -> None:
     assert provider.calls[0].model == "gemini/gemini-3.8-flash"
 
 
-def test_ping_missing_database_url_reports_config_error(clean_env: pytest.MonkeyPatch) -> None:
+def test_ping_invalid_setting_reports_config_error(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("LOG_LEVEL", "VERBOSE")
     result = runner.invoke(cli.app, ["llm", "ping", "--model", "groq-oss-20b"])
     assert result.exit_code == 1
-    assert "DATABASE_URL" in result.output
+    assert "LOG_LEVEL" in result.output

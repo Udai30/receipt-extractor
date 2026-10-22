@@ -1,27 +1,19 @@
 """Destinations for ``llm_call`` records (TRD §S3 accounting).
 
-- :class:`JSONLSink` — ``runs/<run_id>/llm_calls.jsonl`` during eval runs (BACKEND_SCHEMA §S5).
+- :class:`JSONLSink` — ``runs/<run_id>/llm_calls.jsonl`` during eval runs (BACKEND_SCHEMA §S2).
   One line is appended and flushed per call, so an interrupted run keeps its accounting.
   Write failures propagate: an eval run must not continue without its accounting.
-- :class:`DatabaseSink` — ``llm_call`` rows for live API traffic (BACKEND_SCHEMA §S2). A
-  database failure is logged and swallowed so accounting never fails a user's request.
 - :class:`MemorySink` — keeps records in a list (tests, CLI).
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import Final, Protocol
 
 from receipt_extractor.llm.types import LLMCallRecord
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-logger = logging.getLogger(__name__)
 
 LLM_CALLS_FILENAME: Final = "llm_calls.jsonl"
 _RUN_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -63,42 +55,3 @@ class JSONLSink:
         with self.path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(line)
             handle.flush()
-
-
-class DatabaseSink:
-    """Inserts each record as an ``llm_call`` row in its own short transaction."""
-
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
-
-    async def write(self, record: LLMCallRecord) -> None:
-        from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
-
-        from receipt_extractor.db.models import LLMCall  # noqa: PLC0415
-        from receipt_extractor.db.repositories import add_llm_calls  # noqa: PLC0415
-
-        row = LLMCall(
-            id=record.id,
-            created_at=record.created_at,
-            run_id=record.run_id,
-            request_id=record.request_id,
-            case_id=record.case_id,
-            stage=record.stage,
-            provider=record.provider,
-            model=record.model,
-            tokens_in=record.tokens_in,
-            tokens_out=record.tokens_out,
-            latency_ms=record.latency_ms,
-            cache_hit=record.cache_hit,
-            retries=record.retries,
-            schema_valid=record.schema_valid,
-            list_cost_usd=record.list_cost_usd,
-            error=record.error,
-        )
-        try:
-            async with self._session_factory() as session:
-                await add_llm_calls(session, [row])
-                await session.commit()
-        except (SQLAlchemyError, OSError) as exc:
-            # Type only: driver messages can include connection details.
-            logger.error("llm_call row not stored (%s); call id %s", type(exc).__name__, record.id)

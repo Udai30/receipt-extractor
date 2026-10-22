@@ -15,7 +15,7 @@ from receipt_extractor.llm.errors import (
     RetriesExhaustedError,
     UnknownModelError,
 )
-from receipt_extractor.llm.sinks import CallSink, DatabaseSink, JSONLSink, MemorySink
+from receipt_extractor.llm.sinks import CallSink, JSONLSink, MemorySink
 from receipt_extractor.llm.types import (
     CallTags,
     EmbedRequest,
@@ -34,7 +34,6 @@ __all__ = [
     "CallTags",
     "Credentials",
     "DataPolicyError",
-    "DatabaseSink",
     "EmbedRequest",
     "EmbedResponse",
     "ImagePart",

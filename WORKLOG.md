@@ -32,9 +32,36 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M0.R — not started (v1 M0.1–M0.3 code present; setup finished) · next: M0.R |
-| Last verified gate run | 2026-10-22 (this folder): ruff check + format, mypy, pytest 126 passed / 22 skipped (18 Docker-only DB tests, 4 live) |
-| Pending human actions | API keys in `.env`; see the entries below |
+| Current task | M0.R — done · next: M0.4 |
+| Last verified gate run | 2026-10-22: ruff check + format, mypy, pytest 116 passed / 4 live skipped, pip-audit — all green |
+| Pending human actions | API keys in `.env`; delete the v1 DB lines from `.env`; see the entries below |
+
+---
+
+## 2026-10-22 — M0.R · Re-baseline the ported v1 code to the lean stack
+
+**Done:**
+- Starting state (SETUP entry below): 148 tests collected → 126 passed, 22 skipped (18 Docker-only DB tests, 4 live); ruff, mypy clean.
+- **Removed (database layer):** `src/receipt_extractor/db/` (`models.py`, `repositories.py`, `session.py`), `migrations/` (`env.py`, `script.py.mako`, `versions/0001_baseline.py`), `alembic.ini`, `docker-compose.yml`; `DatabaseSink` (+ its `logging`/SQLAlchemy imports) from `llm/sinks.py` and its export from `llm/__init__.py`; settings `DATABASE_URL`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_S` from `config.py`; `POSTGRES_*`, `API_PORT`, `DATABASE_URL`, `DB_*` from `.env.example`; deps `alembic`, `asyncpg`, `sqlalchemy[asyncio]` and dev dep `testcontainers[postgres]` (uv also dropped `mako`, `wrapt`, `docker`, etc.); the `integration` pytest marker and the `migrations/versions` ruff exclude.
+- **Removed (API/Docker):** `src/receipt_extractor/api/` (stub package), `Dockerfile`, `.dockerignore`; the `ingest` CLI group.
+- **Removed tests (29):** `tests/integration/` (18: DB sink 2, migrations 3, repositories 13), `tests/unit/test_db_session.py` (6), `tests/unit/test_deploy_files.py` (5).
+- **Changed tests (DB references only):** `tests/conftest.py` keeps `clean_env` and the live-test gate, drops the testcontainers fixtures. `test_config.py`: the "missing DATABASE_URL" and "pool bounds" tests removed (no required/DB settings left); added "v1 DB variables in `.env` are ignored"; `.env.example` must now match `Settings` exactly. `test_cli.py`: `ingest` removed from the group lists; added "ingest group is gone". `test_cli_llm.py`: no `DATABASE_URL` in the fixture; the config-error test now uses an invalid `LOG_LEVEL`. All `llm/` tests unchanged.
+- **Added:** `src/receipt_extractor/ui/__init__.py` (stub `launch()` raising `NotImplementedError` until M3.2; no Gradio dependency yet), `app.py` (Space entry point → `receipt_extractor.ui.launch`), `tests/unit/test_no_database.py` (fresh interpreter, SQLAlchemy/asyncpg/alembic/psycopg/testcontainers blocked, every `receipt_extractor.*` module imports), `tests/unit/test_ui_stub.py`.
+- README quickstart rewritten (no Docker/alembic); `pyproject.toml` description updated; stale `llm_call`/Postgres docstrings in `llm/types.py` and `llm/sinks.py` point to BACKEND_SCHEMA §S2 JSONL.
+- **Gates after:** `ruff check` clean, `ruff format --check` clean (33 files), `mypy src` clean (17 files), `pytest -q` **116 passed, 4 skipped** (live only; 120 collected = 148 − 29 removed − 1 config + 2 new files), `pip-audit` no known vulnerabilities. `uv run receipt_extractor --help` lists data, eval, report, llm. `python -c "import sqlalchemy"` → ModuleNotFoundError in the venv.
+- Security: `pip-audit` flagged certifi 2026.10.18 (PYSEC-2026-4320); bumped to 2026.10.19 with `uv lock --upgrade-package certifi`. Secret masking still covered by `test_secrets_never_appear_in_repr_or_str`.
+**Files:** deleted as listed above; modified `.env.example`, `README.md`, `pyproject.toml`, `uv.lock`, `src/receipt_extractor/{cli.py,config.py,llm/__init__.py,llm/sinks.py,llm/types.py}`, `tests/conftest.py`, `tests/unit/{test_cli.py,test_cli_llm.py,test_config.py}`, `PRD.md`, `BACKEND_SCHEMA.md`, `IMPLEMENTATION_PLAN.md`; added `app.py`, `src/receipt_extractor/ui/__init__.py`, `tests/unit/{test_no_database.py,test_ui_stub.py}`.
+**Decisions:**
+- Dockerfile/.dockerignore removed: the Space uses the Gradio SDK, not the Docker SDK.
+- Human decision (2026-10-22): remove the DB/API/Docker layer now, but keep it as **Future improvements** to rebuild properly after the short-term tasks. Recorded as PRD §8 (FI-1…FI-5, with the v1 commits `2e15449` / `983410f` as reference), linked from BACKEND_SCHEMA §S5 and IMPLEMENTATION_PLAN. Bringing any back is a PRD change the human approves first.
+- `Settings` now has no required variables, so `--help`, tests and the stub app run without a `.env`; keys are checked by the LLM layer when a call needs them (unchanged behaviour).
+- `tests/e2e/` (empty package, `e2e` marker) kept for M3.2.
+- `.gitignore` needed no change (already keeps only `IMPLEMENTATION_PROMPTS.md`/`PROMPT_PLAYBOOK.md` local).
+**Open:**
+- Human action: delete `DATABASE_URL`, `DB_*`, `POSTGRES_*` and `API_PORT` from your `.env` (now ignored, but they hold the old DB password).
+- Human action (if not done): `docker compose down -v` in `D:\Project\01-receipt-extractor` to stop and remove the v1 database.
+- `graphify update .` run after M0.R (offline, code-only; graph is local and gitignored). Its tip about `GEMINI_API_KEY` must be ignored (CLAUDE.md: never the Gemini backend).
+- Nothing committed.
 
 ---
 

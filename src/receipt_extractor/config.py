@@ -33,15 +33,6 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
-    # Required
-    database_url: SecretStr
-
-    # Connection pool (per process). Keep pool_size + max_overflow below the server's
-    # max_connections divided by the number of worker processes.
-    db_pool_size: int = Field(default=5, ge=1, le=50)
-    db_max_overflow: int = Field(default=5, ge=0, le=50)
-    db_pool_timeout_s: float = Field(default=10.0, gt=0, le=120)
-
     # Provider credentials — optional here; the LLM layer checks the ones a call needs.
     groq_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None

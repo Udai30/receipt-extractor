@@ -96,6 +96,20 @@ reached [X] field-level F1, with schema retries and arithmetic checks cutting in
 - When would you route a receipt to a human?
 - How would this scale to 1M invoices a month, and what would it cost?
 
+## 8. Future improvements (after the short-term tasks)
+
+v1 built a database/service layer that v2 removed in M0.R (2026-10-22) to stay lean. These come
+back only after MF.1 ships, and each one is a PRD change the human approves first (BACKEND_SCHEMA §S5).
+They should be rebuilt properly then, not restored as-is. The v1 code is in git history for reference.
+
+| ID | Improvement | v1 reference (git) |
+|---|---|---|
+| FI-1 | PostgreSQL 16 + pgvector persistence for runs, results and `llm_call` rows, with Alembic migrations | `2e15449` — `db/`, `migrations/`, `alembic.ini` |
+| FI-2 | Database sink for live LLM-call accounting alongside the JSONL sink | `983410f` — `DatabaseSink` in `llm/sinks.py` |
+| FI-3 | FastAPI service exposing the pipelines as an HTTP API | `2e15449` — `api/` (package stub only) |
+| FI-4 | Docker image and Compose stack (app + DB) for local and hosted deployment | `2e15449` — `Dockerfile`, `.dockerignore`, `docker-compose.yml` |
+| FI-5 | Docker-backed integration tests (testcontainers Postgres) | `2e15449`, `983410f` — `tests/integration/` |
+
 ---
 
 ## S1. Portfolio done bar (applies to every project in this portfolio)

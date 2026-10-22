@@ -43,6 +43,9 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 | M3.2 | Gradio Space (Results, Try it, Failures) | M3.1 | 0.5 d |
 | MF.1 | README, resume bullet and LinkedIn draft | M3.2 | 0.25 d |
 
+After MF.1: the database, API and Docker work removed in M0.R is tracked as Future improvements in
+[PRD.md](PRD.md) §8 — not scheduled until the human approves it.
+
 
 ### M0 — Foundation (re-baseline the ported v1 code)
 

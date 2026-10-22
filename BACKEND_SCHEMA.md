@@ -95,4 +95,5 @@ internal errors never leak raw messages.
 ## S5. No-database rule
 
 v2 deliberately has no database. If a future feature needs one, it is a PRD change first, and the
-CLAUDE.md §2 rules apply: the agent writes migrations, the human applies them.
+CLAUDE.md §2 rules apply: the agent writes migrations, the human applies them. The planned return of
+Postgres, FastAPI and Docker is listed in PRD §8 (Future improvements).

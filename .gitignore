@@ -39,13 +39,7 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Initial planning documents (local only)
-PRD.md
-TRD.md
-APPFLOW.md
-UI_UX_DESIGN.md
-BACKEND_SCHEMA.md
-IMPLEMENTATION_PLAN.md
+# Agent prompt files (local only; the other planning docs are committed in v2)
 IMPLEMENTATION_PROMPTS.md
 PROMPT_PLAYBOOK.md
 

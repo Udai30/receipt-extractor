@@ -1,17 +1,19 @@
 # Worklog — Receipt-to-JSON Extractor
 
-> Photo of a receipt in, validated JSON out — with four pipelines benchmarked on accuracy, latency and cost.
+> A receipt photo goes in; validated JSON (line items, prices, totals) comes out — OCR+LLM vs a vision LLM, compared on accuracy, latency and cost.
 
 Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPFLOW.md) · [UI_UX_DESIGN.md](UI_UX_DESIGN.md) · [BACKEND_SCHEMA.md](BACKEND_SCHEMA.md) · [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · **WORKLOG.md** · [IMPLEMENTATION_PROMPTS.md](IMPLEMENTATION_PROMPTS.md) · [CLAUDE.md](CLAUDE.md) · [PROMPT_PLAYBOOK.md](PROMPT_PLAYBOOK.md)
 
 | Field | Value |
 |---|---|
 | Project | P01 · `01-receipt-extractor` |
+| Type | Quick win 1 of 3 |
+| Skill it adds | Multimodal, structured output |
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
-| Difficulty / effort | ≈ 8 focused days (Phase 1) |
-| Frontend | Gradio 5 (Python) mounted on the FastAPI app |
-| Backend | FastAPI + PostgreSQL 16 (pgvector) via Docker Compose |
-| Status | Specification v1 · 2026-10-19 |
+| Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
+| Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
+| Interface | Gradio 5 → Hugging Face Space |
+| Status | Specification v2 (lean) · 2026-10-22 |
 
 ---
 
@@ -23,20 +25,59 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 **Done:** what was actually completed (incl. tests run + results, verification evidence)
 **Files:** paths touched
 **Decisions:** anything decided, and why
-**Open:** anything unresolved — incl. "Human action:" items (migrations, ingest, accounts, secrets)
+**Open:** anything unresolved — incl. "Human action:" items (Kaggle runs, publishing, accounts, secrets)
 ```
 
 ## Current state
 
 | Item | Value |
 |---|---|
-| Current task | M0.3 — done (live `llm ping` awaits API keys) · next: M0.4 |
-| Last verified gate run | 2026-10-19 — ruff, ruff format, mypy --strict, pytest (144 passed incl. 18 testcontainers integration; 4 opt-in live tests skipped), pip-audit: all green |
-| Pending human actions | compose DB migrated to `0001_baseline` (2026-10-19); others: see the entries below |
+| Current task | M0.R — not started (v1 M0.1–M0.3 code present; setup finished) · next: M0.R |
+| Last verified gate run | 2026-10-22 (this folder): ruff check + format, mypy, pytest 126 passed / 22 skipped (18 Docker-only DB tests, 4 live) |
+| Pending human actions | API keys in `.env`; see the entries below |
 
 ---
 
-## 2026-10-19 — M0.3 · LLM provider layer (cache, rate limits, retries, accounting)
+## 2026-10-22 — SETUP · v2 folder setup finished (`setup_v2.ps1`)
+
+**Done:**
+- Human ran `setup_v2.ps1` (transcript in `setup_log.txt`): `.claude/` (settings + `git_guard.py`), `.env` and `.git` copied from `D:\Project\01-receipt-extractor`; branch `test`, remote `origin` = `github.com/Udai30/receipt-extractor`; `uv sync` exit 0. The script was stopped during step 5 (pytest), so the gates were run here instead.
+- Gates in this folder, Docker Desktop not running: `ruff check` clean, `ruff format --check` clean (41 files), `mypy src` clean (21 files), `pytest -q -ra` **126 passed, 22 skipped** — 18 testcontainers DB tests skipped (Docker unreachable), 4 live provider tests skipped (opt-in). v1 recorded 144 passed with Docker up; 126 + 18 = 144, so nothing regressed. The 18 DB tests are deleted in M0.R anyway.
+- `llm ping --model groq-oss-20b` exited 1: `GROQ_API_KEY`, `GEMINI_API_KEY` and `HF_TOKEN` are empty in the copied `.env` (checked by name only; values not printed).
+- `.gitignore`: the six v2 planning docs are no longer ignored (v2 commits them); only `IMPLEMENTATION_PROMPTS.md` and `PROMPT_PLAYBOOK.md` stay local. Removed the leftover blank line and fixed the section comment.
+**Files:** `.gitignore`, `WORKLOG.md`.
+**Decisions:** none beyond the above; pip-audit is left for M0.R's gate run after the DB deps are removed.
+**Open:**
+- Human action: put your keys into `.env` (`GROQ_API_KEY` from https://console.groq.com/keys, `GEMINI_API_KEY` from https://aistudio.google.com/apikey), then `uv run receipt_extractor llm ping --model groq-oss-20b`.
+- `setup_v2.ps1` and `setup_log.txt` are one-off and untracked; delete them once you no longer need the transcript (the log holds no secret values).
+- Nothing committed yet: the v2 docs, CLAUDE.md, WORKLOG.md and `.gitignore` changes are uncommitted on `test`.
+
+---
+
+## 2026-10-22 — DOCS · Project documentation created (v2, lean)
+
+**Done:** Created PRD, TRD, APPFLOW, UI_UX_DESIGN, BACKEND_SCHEMA, IMPLEMENTATION_PLAN,
+IMPLEMENTATION_PROMPTS, CLAUDE.md and the project copy of PROMPT_PLAYBOOK.md from the ideas doc
+"Portfolio Projects: 3 Quick Wins + 3 Flagships" (2026-10-22). v1 code (src/, tests/, configs/, pyproject.toml, uv.lock) was copied from `D:\Project\01-receipt-extractor`; caches, `.claude/`, `.env`, `.git` and `graphify-out/` were not (the human copied them later, see SETUP).
+**Files:** all `*.md` in the project root.
+**Decisions:**
+- v2 follows the ideas doc: pipelines A (OCR+LLM) and B (Gemini vision); C (Qwen2.5-VL-3B, Kaggle) is stretch. v1's Donut baseline is dropped; `A-naive` is the baseline instead.
+- Lean stack: no Postgres/FastAPI/Docker. The v1 DB layer is removed in M0.R; the v1 LLM layer is kept untouched.
+- RapidOCR (pip-only ONNX) instead of Tesseract, to avoid a system install on Windows (v1 decision kept; the doc allows 'Tesseract or PaddleOCR').
+- Space: uploads go only to pipeline A (Groq); Gemini runs only on CORD sample receipts.
+**Open:**
+- ~~Human action: copy `.env`, `.claude\` and `.git` from `D:\Project\01-receipt-extractor`, then `uv sync`.~~ Done 2026-10-22 via `setup_v2.ps1` (see SETUP entry). Still to do after M0.R: delete the `DATABASE_URL`/`POSTGRES_*`/`DB_*`/`API_PORT` lines from `.env`.
+- Human action: if you no longer need it, stop the v1 compose database: `docker compose down` in `D:\Project\01-receipt-extractor`.
+- Human action: confirm Gemini free-tier limits for the pinned Flash model at https://aistudio.google.com/rate-limit and update `configs/models.yaml`.
+- Human action: create a Hugging Face account + write token (`HF_TOKEN`) before M3.2; Kaggle account with phone verification before M2.4 (stretch).
+
+---
+
+## v1 history (from `D:\Project\01-receipt-extractor\WORKLOG.md`, copied 2026-10-22)
+
+> The entries below describe the v1 spec (Postgres + FastAPI). They are kept so the copied code's decisions stay traceable. v2's M0.R removes the database layer.
+
+### 2026-10-19 — M0.3 · LLM provider layer (cache, rate limits, retries, accounting)
 
 **Done:**
 - Verified M0.1 (and M0.2, needed for the DB sink) in the repo before starting; reused `config.Settings`/`get_settings`, the CLI app, `db.models.LLMCall`, `db.repositories.add_llm_calls` and the session factory.
@@ -108,7 +149,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Follow-up (M0.4): the runner should treat `BudgetExhaustedError` as "pause, resume later", and build its client with `cache=True` and `JSONLSink.for_run(...)`.
 - Note: gpt-oss models spend output tokens on reasoning, so `llm ping` uses `max_tokens=512` to make sure a reply is produced. Pipelines should size `max_tokens` with that in mind; `max_tokens` is also reserved against TPM before the call and refunded afterwards.
 
-## 2026-10-19 — M0.2 · Docker Compose, Postgres/pgvector and baseline migration
+### 2026-10-19 — M0.2 · Docker Compose, Postgres/pgvector and baseline migration
 
 **Done:**
 - Verified M0.1 was complete in the repo (package layout, `config.Settings`, CLI, gates) before starting; reused `Settings`/`get_settings`.
@@ -153,7 +194,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Follow-up (M0.5): add FastAPI/uvicorn and `api/main.py` so the `api` compose service runs; add an image HEALTHCHECK against `/health` then.
 - Note: base images are pinned by tag (`pgvector/pgvector:pg16`, `python:3.12-slim-bookworm`, `uv:0.13.1`), not digest. Consider digest pinning before MF.1 deploy.
 
-## 2026-10-19 — TOOLING · graphify knowledge graph + ponytail plugin
+### 2026-10-19 — TOOLING · graphify knowledge graph + ponytail plugin
 
 **Done:**
 - graphify: `graphifyy` 0.9.44 was already installed as a user-level uv tool, and the `/graphify` skill was already in `~/.claude/skills/`, so nothing new was installed. Project setup: `.graphifyignore` (venv, caches, `data/`, `runs/`, `uv.lock`, binaries/images) and `graphify-out/` gitignored.
@@ -173,7 +214,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Human action (optional): `graphify hook install` to rebuild the graph automatically after each commit/checkout. After `git pull`, run `graphify update .`.
 - Human action: install ponytail from an interactive `claude` terminal: `/plugin marketplace add DietrichGebert/ponytail`, then `/plugin install ponytail@ponytail`. Its "write less code" style can pull against this project's production-grade bar (validation, tests, error handling), so consider `/ponytail lite`.
 
-## 2026-10-19 — TOOLING · Agent may push only to `test`
+### 2026-10-19 — TOOLING · Agent may push only to `test`
 
 **Done:**
 - Human request: the agent may commit/push only on the `test` branch. CLAUDE.md §1 updated accordingly (commit/push only when asked; no force, delete, branch switching, history rewriting or server-side merges).
@@ -191,7 +232,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Human action (recommended): add a GitHub branch protection rule for your default branch (Settings → Branches) as the server-side guarantee. The hook only covers commands run through Claude Code.
 - Note: commit `.claude/` so the guard travels with the repo. (The human later removed `CLAUDE.md` from `.gitignore`, so the rules text is committed too.)
 
-## 2026-10-19 — M0.1 · Repository scaffold and quality tooling
+### 2026-10-19 — M0.1 · Repository scaffold and quality tooling
 
 **Done:**
 - Installed `uv` 0.13.1 (was missing; required by CLAUDE.md §3) — the only global install, via `winget install --id astral-sh.uv --scope user`. Remove with `winget uninstall astral-sh.uv`.
@@ -218,7 +259,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Deferred to MF.2: the human keeps the planning docs (PRD, TRD, … CLAUDE.md) local-only via `.gitignore`, so the README's `TRD.md` links and the WORKLOG header links are dead on GitHub. Fix them when the README is rewritten.
 - Note: the uv cache (C:) and the project (D:) are on different drives, so uv prints a hardlink warning; harmless. Silence it with `[Environment]::SetEnvironmentVariable('UV_LINK_MODE','copy','User')` if desired.
 
-## 2026-10-19 — DOCS · Project documentation created
+### 2026-10-19 — DOCS · Project documentation created
 
 **Done:** Created PRD, TRD, APPFLOW, UI_UX_DESIGN, BACKEND_SCHEMA, IMPLEMENTATION_PLAN,
 IMPLEMENTATION_PROMPTS, CLAUDE.md and the project copy of PROMPT_PLAYBOOK.md. No code exists yet.

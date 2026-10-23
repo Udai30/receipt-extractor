@@ -24,6 +24,7 @@ from receipt_extractor.llm.providers import (
     LiteLLMProvider,
     _litellm,
     map_provider_exception,
+    provider_schema,
     schema_rejection_text,
 )
 
@@ -158,6 +159,43 @@ async def test_complete_shapes_request_and_parses_response(
         "type": "json_schema",
         "json_schema": {"name": "Receipt", "schema": {"type": "object"}},
     }
+    assert result.image_tokens_in is None  # not reported → unknown, not 0
+
+
+@pytest.mark.parametrize(
+    ("details", "expected"),
+    [
+        (SimpleNamespace(image_tokens=1120, text_tokens=900), 1120),
+        (SimpleNamespace(image_tokens=0), 0),
+        (SimpleNamespace(image_tokens=None), None),
+        (SimpleNamespace(image_tokens=-3), None),
+        (SimpleNamespace(image_tokens="1120"), None),
+        (None, None),
+    ],
+)
+async def test_complete_reads_image_tokens_when_reported(
+    litellm: Any, monkeypatch: pytest.MonkeyPatch, details: Any, expected: int | None
+) -> None:
+    async def fake_acompletion(**kwargs: Any) -> Any:
+        message = SimpleNamespace(content="{}")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+            usage=SimpleNamespace(
+                prompt_tokens=2020, completion_tokens=40, prompt_tokens_details=details
+            ),
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    call = ChatCall(
+        model="gemini/x",
+        messages=[{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=50,
+        timeout_s=9.0,
+    )
+    result = await LiteLLMProvider().complete(call)
+    assert result.tokens_in == 2020
+    assert result.image_tokens_in == expected
 
 
 async def test_complete_maps_exceptions_without_chaining(
@@ -309,3 +347,131 @@ async def test_embed_parses_vectors(litellm: Any, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(litellm, "aembedding", short)
     with pytest.raises(ProviderRequestError, match="different number"):
         await LiteLLMProvider().embed(call)
+
+
+# --- provider schema adaptation (M2.1: Gemini rejects length bounds) -----------------------
+
+
+def test_gemini_schema_drops_length_bounds_everywhere_but_keeps_names_and_data() -> None:
+    schema = {
+        "$defs": {
+            "Item": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 1, "maxLength": 300},
+                    "maxLength": {"type": "integer", "default": {"maxLength": 3}},
+                },
+            }
+        },
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "items": {"$ref": "#/$defs/Item"}, "maxItems": 500},
+            "tags": {"anyOf": [{"type": "array", "minItems": 1}, {"type": "null"}]},
+            "currency": {"type": "string", "pattern": "^[A-Z]{3}$", "enum": ["IDR"]},
+        },
+    }
+    sent = provider_schema("gemini/gemini-3.5-flash-lite", schema)
+
+    text = json.dumps(sent)
+    item = sent["$defs"]["Item"]["properties"]
+    assert item["name"] == {"type": "string"}
+    assert item["maxLength"] == {"type": "integer", "default": {"maxLength": 3}}  # name + data kept
+    assert sent["properties"]["items"] == {"type": "array", "items": {"$ref": "#/$defs/Item"}}
+    assert sent["properties"]["tags"]["anyOf"][0] == {"type": "array"}
+    assert sent["properties"]["currency"]["pattern"] == "^[A-Z]{3}$"
+    assert "maxItems" not in text and "minItems" not in text and "minLength" not in text
+    assert schema["properties"]["items"]["maxItems"] == 500  # input not mutated
+
+
+def test_receipt_schema_sent_to_gemini_has_no_length_bounds() -> None:
+    from receipt_extractor.core.receipt import Receipt  # noqa: PLC0415
+
+    full = Receipt.model_json_schema()
+    sent = json.dumps(provider_schema("gemini/x", full))
+    assert all(k not in sent for k in ("maxItems", "minLength", "maxLength"))
+    assert provider_schema("groq/openai/gpt-oss-20b", full) is full  # other providers untouched
+
+
+@pytest.mark.parametrize(("model", "stripped"), [("gemini/x", True), ("groq/x", False)])
+async def test_complete_sends_provider_schema(
+    litellm: Any, monkeypatch: pytest.MonkeyPatch, model: str, stripped: bool
+) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs: Any) -> Any:
+        seen.update(kwargs)
+        message = SimpleNamespace(content="{}")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")], usage=None
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    schema = {"type": "array", "maxItems": 5}
+    call = ChatCall(
+        model=model,
+        messages=[{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=50,
+        timeout_s=9.0,
+        json_schema=schema,
+    )
+    await LiteLLMProvider().complete(call)
+    sent = seen["response_format"]["json_schema"]["schema"]
+    assert ("maxItems" not in sent) is stripped
+
+
+async def test_alias_options_are_passed_but_never_override_core_arguments(
+    litellm: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs: Any) -> Any:
+        seen.update(kwargs)
+        message = SimpleNamespace(content="{}")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason="stop")], usage=None
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    call = ChatCall(
+        model="ollama_chat/qwen3-vl:4b-instruct",
+        messages=[{"role": "user", "content": "hi"}],
+        temperature=0.0,
+        max_tokens=50,
+        timeout_s=600.0,
+        api_base="http://localhost:11434",
+        # The registry allow-list blocks these; the adapter must not let them win either.
+        options={"num_ctx": 8192, "model": "groq/evil", "timeout": 1, "num_retries": 9},
+    )
+    await LiteLLMProvider().complete(call)
+
+    assert seen["num_ctx"] == 8192
+    assert seen["model"] == "ollama_chat/qwen3-vl:4b-instruct"
+    assert seen["timeout"] == 600.0 and seen["num_retries"] == 0
+    assert seen["api_base"] == "http://localhost:11434"
+
+
+def test_ollama_schema_requires_every_property_but_keeps_nullability() -> None:
+    from receipt_extractor.core.receipt import Receipt  # noqa: PLC0415
+
+    full = Receipt.model_json_schema()
+    sent = provider_schema("ollama_chat/qwen3-vl:4b-instruct", full)
+
+    assert sent["required"] == ["items", "subtotal", "tax", "total", "currency"]
+    item = sent["$defs"]["Item"]
+    assert item["required"] == ["name", "qty", "unit_price", "price"]
+    assert {"type": "null"} in item["properties"]["qty"]["anyOf"]  # null still allowed
+    assert {"type": "null"} in sent["properties"]["tax"]["anyOf"]
+    assert full["required"] == ["total"]  # input not mutated
+    assert provider_schema("ollama/m", full)["required"] == sent["required"]
+
+
+def test_require_all_properties_leaves_names_and_data_alone() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"required": {"type": "string", "default": {"properties": {"a": 1}}}},
+    }
+    sent = provider_schema("ollama/m", schema)
+    assert sent["required"] == ["required"]
+    assert sent["properties"]["required"]["default"] == {"properties": {"a": 1}}
+    assert "required" not in sent["properties"]["required"]

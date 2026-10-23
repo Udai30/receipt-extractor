@@ -12,7 +12,7 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
 | Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
 | Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
-| Interface | Gradio 5 → Hugging Face Space |
+| Interface | Gradio 6 → Hugging Face Space |
 | Status | Specification v2 (lean) · 2026-10-22 |
 
 ---

@@ -69,7 +69,6 @@ def fake_predictions() -> list[dict[str, Any]]:
         else:
             line["prediction"] = {"sum": gold["sum"] + (1 if i % 4 == 0 else 0)}
         lines.append(line)
-    lines.append({"case_id": "not-in-sample", "prediction": {}, "latency_ms": 1})
     return lines
 
 
@@ -212,3 +211,83 @@ def test_report_on_empty_runs_dir(project: Path) -> None:
     result = build_reports(project / "runs", project / "reports")
     assert result.rows == 0
     assert (project / "reports" / RESULTS_CSV).read_text().startswith("variant,")
+
+
+# --- M2.3: latency without pacing waits, and report determinism ---------------------------
+
+
+class _WaitingTask:
+    """Sleeps ``work_s`` and reports ``wait_ms`` of it as free-tier pacing."""
+
+    def __init__(self, wait_ms: int, work_s: float = 0.03) -> None:
+        self.wait_ms = wait_ms
+        self.work_s = work_s
+
+    async def __call__(self, case: Any, ctx: Any) -> Any:
+        import asyncio  # noqa: PLC0415
+
+        from receipt_extractor.eval.tasks import CaseOutput  # noqa: PLC0415
+
+        await asyncio.sleep(self.work_s)
+        return CaseOutput(prediction=case.gold, wait_ms=self.wait_ms)
+
+
+async def test_wait_is_recorded_and_excluded_from_service_latency(
+    project: Path, prepare: Prepare
+) -> None:
+    run = prepare(4)
+    await execute_run(run, _WaitingTask(wait_ms=20))
+    rows = read_rows(run.run_dir)
+    assert all(0 < row.wait_ms <= row.latency_ms for row in rows)
+
+    summary = Summary.model_validate_json((run.run_dir / SUMMARY_FILENAME).read_text())
+    assert summary.service_latency_ms is not None
+    assert summary.service_latency_ms.p50 is not None and summary.latency_ms.p50 is not None
+    assert summary.service_latency_ms.p50 <= summary.latency_ms.p50 - 19
+
+    build_reports(project / "runs", project / "reports", charts=False)
+    with (project / "reports" / RESULTS_CSV).open(encoding="utf-8", newline="") as handle:
+        (row,) = list(csv.DictReader(handle))
+    assert float(row["p50_ms"]) < float(row["wall_p50_ms"])
+    assert "excluding time queued for free-tier rate limits" in (
+        project / "reports" / RESULTS_MD
+    ).read_text(encoding="utf-8")
+
+
+async def test_wait_longer_than_the_case_is_capped(project: Path, prepare: Prepare) -> None:
+    run = prepare(2)
+    await execute_run(run, _WaitingTask(wait_ms=10_000_000))
+    assert all(row.wait_ms == row.latency_ms for row in read_rows(run.run_dir))
+
+
+async def test_summary_written_before_m23_falls_back_to_wall_clock(
+    project: Path, prepare: Prepare
+) -> None:
+    run = prepare(3)
+    await execute_run(run, build_task("toy", {}))
+    path = run.run_dir / SUMMARY_FILENAME
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["service_latency_ms"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    build_reports(project / "runs", project / "reports", charts=False)
+    with (project / "reports" / RESULTS_CSV).open(encoding="utf-8", newline="") as handle:
+        (row,) = list(csv.DictReader(handle))
+    assert row["p50_ms"] == row["wall_p50_ms"]
+
+
+async def test_report_regenerates_identically_from_the_same_runs(
+    project: Path, prepare: Prepare
+) -> None:
+    await execute_run(prepare(20), build_task("toy", {"error_rate": 0.2}))
+    await execute_run(prepare(10, seed=3, variant="other"), build_task("toy", {}))
+
+    first = build_reports(project / "runs", project / "out1")
+    second = build_reports(project / "runs", project / "out2")
+    names = sorted(p.name for p in first.files)
+    assert names == sorted(p.name for p in second.files)
+    assert len(names) == 4  # csv, md and both charts
+    for name in names:
+        assert (project / "out1" / name).read_bytes() == (project / "out2" / name).read_bytes(), (
+            name
+        )

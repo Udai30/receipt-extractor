@@ -35,6 +35,7 @@ class FakeReply:
     tokens_out: int | None = 5
     latency_s: float = 0.0
     finish_reason: str = "stop"
+    image_tokens_in: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +107,7 @@ class FakeProvider:
             tokens_in=reply.tokens_in,
             tokens_out=reply.tokens_out,
             finish_reason=reply.finish_reason,
+            image_tokens_in=reply.image_tokens_in,
         )
 
     async def embed(self, call: EmbedCall) -> EmbedResult:

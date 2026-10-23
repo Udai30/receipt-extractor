@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "gradio>=6.30,<7",
     "huggingface-hub>=1.33",
     "litellm>=1.106.0",
     "matplotlib>=3.10",
@@ -46,6 +47,13 @@ dev = [
 
 # --- Quality tooling (TRD §S8) -------------------------------------------------
 
+[tool.uv]
+# Every Gradio release caps pillow below 13, but pillow < 13.0 has known CVEs on the image-decoding
+# path (CVE-2026-96636/37/43/44/78, GHSA-78g4-xqwv-q3g8). Decision 2026-10-23 (human, M3.2):
+# keep pillow 13 over Gradio's cap; covered by the gradio_client smoke tests. Remove when Gradio
+# allows pillow >= 13.
+override-dependencies = ["pillow>=13.0.0"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -67,9 +75,14 @@ ignore = ["PLR0913"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004"]
+# Generated Kaggle notebook (M2.4): prints and asserts are its progress output and fail-loud
+# checks; constants are generated one per line. It is regenerated, never edited by hand.
+"notebooks/*.ipynb" = ["T201", "S101", "E501", "PTH123"]
 
 [tool.ruff.format]
 line-ending = "lf"
+# Written by receipt_extractor.pipelines.qwen_notebook; a test checks it matches the generator.
+exclude = ["notebooks/*.ipynb"]
 
 [tool.mypy]
 python_version = "3.12"

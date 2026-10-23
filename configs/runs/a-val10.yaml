@@ -10,6 +10,9 @@ params:
   model: groq-oss-20b
   prompt_version: a-v3
   max_tokens: 4096
+  # M2.2: re-ask with the errors up to twice; arithmetic check at 0.5 % of the total.
+  max_repairs: 2
+  reconcile_tolerance: "0.005"
   ocr:
     det_max_side: 960
     use_angle_cls: false

@@ -50,6 +50,7 @@ class _CaseStats:
     status: CaseStatus
     metrics: Mapping[str, float | None]
     latency_ms: int
+    wait_ms: int
     tokens_in: int
     tokens_out: int
     cost: Decimal
@@ -73,6 +74,7 @@ def _collect(results_path: Path) -> dict[str, _CaseStats]:
             status=row.status,
             metrics=values,
             latency_ms=row.latency_ms,
+            wait_ms=min(row.wait_ms, row.latency_ms),
             tokens_in=row.tokens_in,
             tokens_out=row.tokens_out,
             cost=row.list_cost_usd,
@@ -115,6 +117,7 @@ def build_summary(
         )
 
     latencies = sorted(float(case.latency_ms) for case in stats)
+    service = sorted(float(case.latency_ms - case.wait_ms) for case in stats)
     counts: dict[CaseStatus, int] = {"pass": 0, "fail": 0, "error": 0}
     for case in stats:
         counts[case.status] += 1
@@ -128,11 +131,8 @@ def build_summary(
         primary_metric=config.primary_metric,
         metrics=metrics,
         status_counts=counts,
-        latency_ms=LatencySummary(
-            p50=quantile(latencies, 0.50),
-            p95=quantile(latencies, 0.95),
-            p99=quantile(latencies, 0.99) if len(latencies) >= P99_MIN_CASES else None,
-        ),
+        latency_ms=_percentiles(latencies),
+        service_latency_ms=_percentiles(service),
         tokens=TokenSummary.model_validate(
             {
                 "in": sum(case.tokens_in for case in stats),
@@ -145,6 +145,14 @@ def build_summary(
         n_errors=counts["error"],
         started_at=started_at,
         finished_at=finished_at,
+    )
+
+
+def _percentiles(sorted_ms: list[float]) -> LatencySummary:
+    return LatencySummary(
+        p50=quantile(sorted_ms, 0.50),
+        p95=quantile(sorted_ms, 0.95),
+        p99=quantile(sorted_ms, 0.99) if len(sorted_ms) >= P99_MIN_CASES else None,
     )
 
 

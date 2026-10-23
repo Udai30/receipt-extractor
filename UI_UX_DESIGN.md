@@ -12,7 +12,7 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
 | Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
 | Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
-| Interface | Gradio 5 → Hugging Face Space |
+| Interface | Gradio 6 → Hugging Face Space |
 | Status | Specification v2 (lean) · 2026-10-22 |
 
 ---
@@ -34,6 +34,9 @@ accordion (OCR text, raw JSON, attempts).
 
 ### 2.3 Failures
 Table filterable by cause and pipeline; selecting a row shows the image, gold vs predicted.
+As built (M3.2): gold vs predicted JSON from `reports/failure_examples.jsonl` (written in M3.1);
+the receipt image is not shown, because the Space carries no test images (only the six bundled
+validation samples).
 
 ## 3. Copy
 

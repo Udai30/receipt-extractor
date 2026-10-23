@@ -39,14 +39,30 @@ class Reconciliation:
     """``(subtotal or Σ items) + tax - total`` (tax counts as 0 when absent)."""
     tax_included: bool
     """True when only the tax-inclusive reading (``subtotal = total``) reconciles."""
+    allowed: Decimal
+    """The tolerance both checks used."""
 
 
-def tolerance(total: Decimal) -> Decimal:
-    return max(ABS_TOLERANCE, abs(total) * REL_TOLERANCE)
+def tolerance(
+    total: Decimal,
+    *,
+    rel_tolerance: Decimal = REL_TOLERANCE,
+    abs_tolerance: Decimal = ABS_TOLERANCE,
+) -> Decimal:
+    if rel_tolerance < 0 or abs_tolerance < 0:
+        raise ValueError("tolerances must be non-negative")
+    return max(abs_tolerance, abs(total) * rel_tolerance)
 
 
-def reconcile(receipt: Receipt) -> Reconciliation:
-    allowed = tolerance(receipt.total)
+def reconcile(
+    receipt: Receipt,
+    *,
+    rel_tolerance: Decimal = REL_TOLERANCE,
+    abs_tolerance: Decimal = ABS_TOLERANCE,
+) -> Reconciliation:
+    """Check ``receipt``'s arithmetic. The defaults are the scorer's; pipelines may pass their own
+    tolerance (a run param), which never changes how the ``reconcile`` metric is scored."""
+    allowed = tolerance(receipt.total, rel_tolerance=rel_tolerance, abs_tolerance=abs_tolerance)
     items_sum = sum((item.price for item in receipt.items), Decimal(0))
     items_diff = None if receipt.subtotal is None else items_sum - receipt.subtotal
     base = items_sum if receipt.subtotal is None else receipt.subtotal
@@ -62,4 +78,5 @@ def reconcile(receipt: Receipt) -> Reconciliation:
         items_diff=items_diff,
         total_diff=total_diff,
         tax_included=tax_included,
+        allowed=allowed,
     )

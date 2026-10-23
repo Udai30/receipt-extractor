@@ -20,6 +20,7 @@ from receipt_extractor.llm.errors import (
 from receipt_extractor.llm.limits import BudgetTracker, RateLimiter, TokenBucket
 from receipt_extractor.llm.registry import (
     ModelRegistry,
+    ModelSpec,
     PriceTable,
     RateLimits,
     check_pricing_covers,
@@ -59,7 +60,7 @@ def test_only_gemini_aliases_are_public_only_and_all_gemini_aliases_are() -> Non
 
 
 def test_no_model_strings_outside_models_yaml() -> None:
-    pattern = re.compile(r"""["'](groq|gemini|ollama)/[\w.\-/]+["']""")
+    pattern = re.compile(r"""["'](groq|gemini|ollama|ollama_chat)/[\w.:\-/]+["']""")
     offenders = [
         f"{path.relative_to(PROJECT_ROOT)}: {match.group(0)}"
         for path in (PROJECT_ROOT / "src").rglob("*.py")
@@ -360,3 +361,40 @@ async def test_jsonl_sink_appends_one_record_per_line(tmp_path: Path) -> None:
 def test_jsonl_sink_rejects_unsafe_run_ids(tmp_path: Path, run_id: str) -> None:
     with pytest.raises(ValueError, match="run_id"):
         JSONLSink.for_run(tmp_path, run_id)
+
+
+# --- local vision model: ollama_chat route and alias options (M2.1) -----------------------
+
+
+def _spec(**fields: object) -> ModelSpec:
+    base: dict[str, object] = {"alias": "x", "provider": "ollama", "kind": "chat"}
+    return ModelSpec.model_validate({**base, **fields})
+
+
+def test_ollama_accepts_generate_and_chat_routes_only() -> None:
+    assert _spec(model="ollama/m").model == "ollama/m"
+    assert _spec(model="ollama_chat/qwen3-vl:4b-instruct").model.startswith("ollama_chat/")
+    with pytest.raises(ValueError, match="must start with 'ollama/' or 'ollama_chat/'"):
+        _spec(model="groq/m")
+    with pytest.raises(ValueError, match="must start with 'groq/'"):
+        _spec(provider="groq", model="ollama_chat/m")
+
+
+@pytest.mark.parametrize("option", ["api_base", "model", "api_key", "response_format", "think"])
+def test_alias_options_are_allow_listed(option: str) -> None:
+    with pytest.raises(ValueError, match="unknown option"):
+        _spec(model="ollama_chat/m", options={option: "x"})
+
+
+def test_options_only_for_callable_providers() -> None:
+    assert _spec(model="ollama_chat/m", options={"num_ctx": 8192}).options == {"num_ctx": 8192}
+    with pytest.raises(ValueError, match="only valid for callable"):
+        _spec(provider="local", kind="local", model="org/m", options={"num_ctx": 1})
+
+
+def test_configured_local_vision_alias() -> None:
+    spec = ModelRegistry.from_yaml(MODELS_YAML).get("ollama-qwen3-vl-4b")
+    # The instruct build: the bare `qwen3-vl:4b` tag is the thinking build.
+    assert spec.model == "ollama_chat/qwen3-vl:4b-instruct"
+    assert spec.kind == "chat" and spec.data_policy == "any"
+    assert spec.options == {"num_ctx": 8192}

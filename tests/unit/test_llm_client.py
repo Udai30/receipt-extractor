@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
@@ -554,3 +555,267 @@ async def test_cache_entry_of_unexpected_shape_is_a_miss(
     response = await client.complete(chat())
 
     assert response.cache_hit is False and response.text == "second"
+
+
+# --- image tokens (M2.1) -----------------------------------------------------------------
+
+
+async def test_image_tokens_summed_over_repair_and_recorded_per_call(
+    make_client: Factory, sink: MemorySink
+) -> None:
+    provider = FakeProvider(
+        [
+            FakeReply(text='{"total": "1"', tokens_in=1300, image_tokens_in=1120),
+            FakeReply(
+                text='{"total": "1", "currency": "IDR"}', tokens_in=1400, image_tokens_in=1120
+            ),
+        ]
+    )
+    response = await make_client(provider).complete(chat("test-public", response_model=Total))
+
+    assert response.repaired is True
+    assert response.image_tokens_in == 2240
+    assert [r.image_tokens_in for r in sink.records] == [1120, 1120]
+
+
+async def test_image_tokens_unknown_stay_none(make_client: Factory, sink: MemorySink) -> None:
+    response = await make_client(FakeProvider([FakeReply(text="x")])).complete(chat())
+    assert response.image_tokens_in is None
+    assert sink.records[-1].image_tokens_in is None
+
+
+async def test_cache_hit_keeps_image_tokens(make_client: Factory, sink: MemorySink) -> None:
+    provider = FakeProvider([FakeReply(text="x", image_tokens_in=258)])
+    client = make_client(provider, cache=True)
+    await client.complete(chat("test-public"))
+    cached = await client.complete(chat("test-public"))
+
+    assert cached.cache_hit is True
+    assert cached.image_tokens_in == 258
+    assert sink.records[-1].cache_hit is True and sink.records[-1].image_tokens_in == 258
+
+
+async def test_cache_entry_written_before_image_tokens_still_hits(
+    make_client: Factory, tmp_path: Any
+) -> None:
+    provider = FakeProvider([FakeReply(text="first"), FakeReply(text="second")])
+    client = make_client(provider, cache=True)
+    await client.complete(chat())
+    [entry] = list((tmp_path / "cache").rglob("*.json"))
+    old = {
+        "op": "chat",
+        "text": "first",
+        "tokens_in": 10,
+        "tokens_out": 5,
+        "finish_reason": "stop",
+        "schema_valid": None,
+        "repaired": False,
+    }
+    entry.write_text(json.dumps(old), encoding="utf-8")
+
+    response = await client.complete(chat())
+
+    assert response.cache_hit is True and response.text == "first"
+    assert response.image_tokens_in is None
+
+
+# --- alias options (M2.1: local Ollama vision model) --------------------------------------
+
+
+def _registry_with_options(options: dict[str, Any]) -> Any:
+    from receipt_extractor.llm.registry import ModelRegistry, ModelSpec  # noqa: PLC0415
+    from tests.unit.conftest import make_registry  # noqa: PLC0415
+
+    specs = {s.alias: s for s in make_registry()}
+    specs["test-local-vl"] = ModelSpec(
+        alias="test-local-vl",
+        provider="ollama",
+        kind="chat",
+        model="ollama_chat/test-vl",
+        options=options,
+    )
+    return ModelRegistry(specs)
+
+
+def _pricing_with_local() -> Any:
+    from datetime import date  # noqa: PLC0415
+
+    from receipt_extractor.llm.registry import PriceEntry, PriceTable  # noqa: PLC0415
+
+    def entry(inp: str, out: str) -> list[PriceEntry]:
+        return [
+            PriceEntry(
+                effective_from=date(2026, 1, 1),
+                input_per_mtok=Decimal(inp),
+                output_per_mtok=Decimal(out),
+                source="test",
+                checked=date(2026, 1, 1),
+            )
+        ]
+
+    return PriceTable(
+        {
+            "groq/test-model": entry("1.00", "2.00"),
+            "gemini/test-flash": entry("0.50", "1.50"),
+            "ollama/test-embed": entry("0", "0"),
+            "ollama_chat/test-vl": entry("0", "0"),
+        }
+    )
+
+
+async def test_alias_options_reach_the_provider_call(make_client: Factory) -> None:
+    provider = FakeProvider([FakeReply(text="x")])
+    client = make_client(
+        provider,
+        registry=_registry_with_options({"num_ctx": 8192}),
+        pricing=_pricing_with_local(),
+    )
+    await client.complete(chat("test-local-vl", timeout_s=600))
+
+    (call,) = provider.calls
+    assert call.options == {"num_ctx": 8192}
+    assert call.timeout_s == 600
+    assert call.api_base == "http://localhost:11434" and call.api_key is None
+
+
+async def test_alias_options_are_part_of_the_cache_key_only_when_set(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider()
+    pricing = _pricing_with_local()
+    plain = make_client(provider, cache=True, registry=_registry_with_options({}), pricing=pricing)
+    await plain.complete(chat("test-local-vl"))
+    await plain.complete(chat("test-local-vl"))
+    assert len(provider.calls) == 1  # no options → same key as before options existed
+
+    tuned = make_client(
+        provider, cache=True, registry=_registry_with_options({"num_ctx": 8192}), pricing=pricing
+    )
+    await tuned.complete(chat("test-local-vl"))
+    assert len(provider.calls) == 2  # different options → different answer, new key
+
+
+# --- up to two repairs (M2.2) ---------------------------------------------------------------
+
+
+async def test_second_repair_runs_when_the_first_is_still_invalid(
+    make_client: Factory, sink: MemorySink
+) -> None:
+    provider = FakeProvider(
+        [
+            FakeReply(text='{"total": "1"', tokens_in=100),
+            FakeReply(text='{"total": 1}', tokens_in=110),
+            FakeReply(text='{"total": "1", "currency": "IDR"}', tokens_in=120),
+        ]
+    )
+    response = await make_client(provider).complete(
+        chat(response_model=Total, max_repairs=2, tags=CallTags(stage="llm"))
+    )
+
+    assert response.schema_valid is True and response.repaired is True
+    assert response.attempts == 3 and response.tokens_in == 330
+    assert [(r.stage, r.schema_valid) for r in sink.records] == [
+        ("llm", False),
+        ("llm:repair", False),
+        ("llm:repair2", True),
+    ]
+    # The second repair sees the whole conversation: both earlier replies and their errors.
+    last = provider.calls[2].messages
+    assert [m["role"] for m in last[-4:]] == ["assistant", "user", "assistant", "user"]
+    assert last[-2]["content"] == '{"total": 1}'
+
+
+async def test_repairs_stop_at_the_first_valid_reply(make_client: Factory) -> None:
+    provider = FakeProvider(
+        [FakeReply(text="nope"), FakeReply(text='{"total": "1", "currency": "IDR"}')]
+    )
+    response = await make_client(provider).complete(chat(response_model=Total, max_repairs=2))
+    assert response.attempts == 2 and len(provider.calls) == 2
+
+
+async def test_gives_up_after_max_repairs(make_client: Factory) -> None:
+    provider = FakeProvider([FakeReply(text="nope")] * 4)
+    response = await make_client(provider).complete(chat(response_model=Total, max_repairs=2))
+    assert response.schema_valid is False and response.attempts == 3
+    assert len(provider.calls) == 3
+
+
+async def test_failed_second_repair_returns_parts_so_far_uncached(make_client: Factory) -> None:
+    provider = FakeProvider(
+        [FakeReply(text="nope"), FakeReply(text="still nope"), FakeFailure("bad_request")]
+    )
+    client = make_client(provider, cache=True)
+    response = await client.complete(chat(response_model=Total, max_repairs=2))
+
+    assert response.schema_valid is False and response.repaired is True
+    assert response.attempts == 2 and response.text == "still nope"
+    provider.push(FakeReply(text='{"total": "1", "currency": "IDR"}'))
+    again = await client.complete(chat(response_model=Total, max_repairs=2))
+    assert again.cache_hit is False  # the failed attempt was not cached
+
+
+VALID_TOTAL = '{"total": "1", "currency": "IDR"}'
+
+
+async def test_valid_cached_reply_is_reused_under_a_larger_repair_budget(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider([FakeReply(text=VALID_TOTAL)])
+    client = make_client(provider, cache=True)
+    await client.complete(chat(response_model=Total))  # max_repairs 1 (pre-M2.2 default)
+    again = await client.complete(chat(response_model=Total, max_repairs=2))
+    assert again.cache_hit and len(provider.calls) == 1  # nothing re-sent
+
+
+async def test_invalid_cached_reply_is_retried_when_more_repairs_are_allowed(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider([FakeReply(text="no"), FakeReply(text="no")])
+    client = make_client(provider, cache=True)
+    first = await client.complete(chat(response_model=Total, max_repairs=1))
+    assert first.schema_valid is False and first.attempts == 2
+
+    assert (await client.complete(chat(response_model=Total, max_repairs=1))).cache_hit
+    provider.push(FakeReply(text="no"), FakeReply(text="no"), FakeReply(text=VALID_TOTAL))
+    second = await client.complete(chat(response_model=Total, max_repairs=2))
+    assert second.cache_hit is False and second.schema_valid is True and second.attempts == 3
+    # The better answer replaced the entry.
+    assert (await client.complete(chat(response_model=Total, max_repairs=2))).cache_hit
+
+
+async def test_reply_that_needed_two_repairs_is_not_served_to_a_one_repair_request(
+    make_client: Factory,
+) -> None:
+    provider = FakeProvider(
+        [FakeReply(text="no"), FakeReply(text="no"), FakeReply(text=VALID_TOTAL)]
+    )
+    client = make_client(provider, cache=True)
+    await client.complete(chat(response_model=Total, max_repairs=2))
+    provider.push(FakeReply(text="no"), FakeReply(text="no"))
+    strict = await client.complete(chat(response_model=Total, max_repairs=1))
+    assert strict.cache_hit is False and strict.schema_valid is False and strict.attempts == 2
+
+
+async def test_cache_hit_keeps_attempts_and_old_entries_infer_them(
+    make_client: Factory, tmp_path: Any
+) -> None:
+    provider = FakeProvider([FakeReply(text="no"), FakeReply(text="no"), FakeReply(text="no")])
+    client = make_client(provider, cache=True)
+    await client.complete(chat(response_model=Total, max_repairs=2))
+    cached = await client.complete(chat(response_model=Total, max_repairs=2))
+    assert cached.cache_hit and cached.attempts == 3
+
+    [entry] = list((tmp_path / "cache").rglob("*.json"))
+    data = json.loads(entry.read_text(encoding="utf-8"))
+    del data["attempts"]  # an entry written before M2.2
+    data["repaired"] = True
+    entry.write_text(json.dumps(data), encoding="utf-8")
+    # Inferred: one repair (attempts 2), so it serves a one-repair request.
+    old_entry = await client.complete(chat(response_model=Total, max_repairs=1))
+    assert old_entry.cache_hit and old_entry.attempts == 2
+
+
+@pytest.mark.parametrize("bad", [0, 3])
+def test_max_repairs_is_bounded(bad: int) -> None:
+    with pytest.raises(ValueError, match="max_repairs"):
+        chat(max_repairs=bad)

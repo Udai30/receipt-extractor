@@ -38,6 +38,17 @@ DataPolicy = Literal["any", "public_only"]
 
 CALLABLE_KINDS: Final = frozenset({"chat", "embedding"})
 CALLABLE_PROVIDERS: Final = frozenset({"groq", "gemini", "ollama"})
+# LiteLLM routes on the model-string prefix; Ollama has a generate (`ollama/`) and a chat
+# (`ollama_chat/`, needed for images in chat messages) route.
+MODEL_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
+    "groq": ("groq/",),
+    "gemini": ("gemini/",),
+    "ollama": ("ollama/", "ollama_chat/"),
+}
+# Provider request options an alias may set (passed to LiteLLM as extra keyword arguments).
+# An allow-list, so a config can never override the model, credentials or endpoint.
+ALLOWED_OPTIONS: Final = frozenset({"num_ctx", "num_thread", "keep_alive"})
+OptionValue = int | float | bool | str
 
 _STRICT = ConfigDict(extra="forbid", frozen=True)
 
@@ -68,6 +79,16 @@ class ModelSpec(BaseModel):
     limits: RateLimits = RateLimits()
     limits_checked: date | None = None
     source: str | None = None
+    options: dict[str, OptionValue] = Field(default_factory=dict)
+
+    @field_validator("options")
+    @classmethod
+    def _known_options(cls, value: dict[str, OptionValue]) -> dict[str, OptionValue]:
+        unknown = sorted(set(value) - ALLOWED_OPTIONS)
+        if unknown:
+            allowed = ", ".join(sorted(ALLOWED_OPTIONS))
+            raise ValueError(f"unknown option(s) {', '.join(unknown)} (allowed: {allowed})")
+        return value
 
     @field_validator("alias")
     @classmethod
@@ -82,11 +103,15 @@ class ModelSpec(BaseModel):
         callable_provider = self.provider in CALLABLE_PROVIDERS
         if callable_kind != callable_provider:
             raise ValueError(f"kind '{self.kind}' is not valid for provider '{self.provider}'")
-        if callable_provider and not self.model.startswith(f"{self.provider}/"):
+        prefixes = MODEL_PREFIXES.get(self.provider, ())
+        if callable_provider and not self.model.startswith(prefixes):
             # LiteLLM routes on this prefix; a mismatch would silently call another provider.
             raise ValueError(
-                f"model for provider '{self.provider}' must start with '{self.provider}/'"
+                f"model for provider '{self.provider}' must start with "
+                + " or ".join(f"'{p}'" for p in prefixes)
             )
+        if self.options and not callable_provider:
+            raise ValueError("options are only valid for callable providers")
         return self
 
     @property

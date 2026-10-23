@@ -39,6 +39,7 @@ class ResultRow(BaseModel):
     gold: Any = None
     details: dict[str, Any] = Field(default_factory=dict)
     latency_ms: int = Field(ge=0)
+    wait_ms: int = Field(default=0, ge=0)  # part of latency_ms spent queued for pacing (M2.3)
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     list_cost_usd: Decimal = Field(default=Decimal(0), ge=0)
@@ -84,6 +85,8 @@ class Summary(BaseModel):
     metrics: dict[str, MetricValue]
     status_counts: dict[CaseStatus, int]
     latency_ms: LatencySummary
+    # Wall clock minus pacing waits (`ResultRow.wait_ms`); None in summaries written before M2.3.
+    service_latency_ms: LatencySummary | None = None
     tokens: TokenSummary
     list_cost_usd_per_1k: Decimal | None
     n_errors: int = Field(ge=0)

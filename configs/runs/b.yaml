@@ -1,0 +1,41 @@
+# M2.3 benchmark — Pipeline B: CORD image (≤ 1,536 px, JPEG q90) → Gemini 3.5 Flash-Lite with the
+# Receipt schema, up to 2 re-asks, arithmetic check and needs_review. All 100 CORD test receipts.
+# gemini-flash-lite is public_only and B refuses anything but public dataset images.
+# Free tier: 20 requests/day (conservative, confirm in AI Studio) → ≈ 5–7 days incl. re-asks and
+# 503 retries; the budget tracker pauses and the same command resumes (plan in WORKLOG M2.3).
+#   uv run receipt_extractor eval run --config configs/runs/b.yaml
+variant: B
+task: pipeline_b
+params:
+  model: gemini-flash-lite
+  prompt_version: b-v1
+  max_tokens: 8192
+  max_repairs: 2
+  reconcile_tolerance: "0.005"
+  image:
+    max_side: 1536
+    format: jpeg
+    jpeg_quality: 90
+dataset:
+  kind: cord
+  split: test
+sample:
+  seed: 0                  # no ids/size: all 100 test receipts
+models:
+  - gemini-flash-lite
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 1

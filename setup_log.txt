@@ -1,0 +1,63 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261022174047
+Username: UDAI\Udai
+RunAs User: UDAI\Udai
+Configuration Name: 
+Machine: UDAI (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File D:\My Hub\projects\01-receipt-extractor\setup_v2.ps1
+Process ID: 25528
+PSVersion: 5.1.26100.9711
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9711
+BuildVersion: 10.0.26100.9711
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+=== 1. Copy .claude and .env from the v1 folder ===
+.claude copied
+.env copied
+
+=== 2. Bring over git history (.git) ===
+.git copied
+test
+origin  https://github.com/Udai30/receipt-extractor.git (fetch)
+origin  https://github.com/Udai30/receipt-extractor.git (push)
+--- git status (short) ---
+ M .gitignore
+ M CLAUDE.md
+ M WORKLOG.md
+?? APPFLOW.md
+?? BACKEND_SCHEMA.md
+?? IMPLEMENTATION_PLAN.md
+?? PRD.md
+?? TRD.md
+?? UI_UX_DESIGN.md
+?? setup_log.txt
+?? setup_v2.ps1
+
+=== 3. uv sync ===
+ + zipp==4.1.1
+uv sync exit code: 0
+
+=== 4. API keys present? (names only, values never printed) ===
+GROQ_API_KEY: MISSING
+GEMINI_API_KEY: MISSING
+HF_TOKEN: MISSING
+--- llm ping groq-oss-20b ---
+
+llm ping exit code: 1
+
+=== 5. Test suite (DB tests skip if Docker is not running) ===
+
+PS>TerminatingError(): "The pipeline has been stopped."
+>> TerminatingError(): "The pipeline has been stopped."
+>> $global:?
+True
+**********************
+Windows PowerShell transcript end
+End time: 20261022174117
+**********************

@@ -12,7 +12,7 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
 | Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
 | Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
-| Interface | Gradio 5 → Hugging Face Space |
+| Interface | Gradio 6 → Hugging Face Space |
 | Status | Specification v2 (lean) · 2026-10-22 |
 
 ---
@@ -32,9 +32,300 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M1.3 — done · next: M2.1 |
-| Last verified gate run | 2026-10-22 (M1.3): ruff check + format, mypy, pytest 436 passed / 7 skipped (6 live, 1 symlink), pip-audit — all green; live pipeline A smoke 2 passed |
-| Pending human actions | API keys in `.env`; delete the v1 DB lines from `.env`; see the entries below |
+| Current task | M3.2 done locally (deploy = human action) · M2.3 in progress (A-naive resuming 2026-10-23; A, B by budget plan) · M2.1, M2.2 done · M2.4 notebook ready, waiting for the human's Kaggle run · next: M3.1 when M2.3's test rows exist |
+| Last verified gate run | 2026-10-23 (M3.2): ruff check + format, mypy, pytest 595 passed / 9 skipped (8 live, 1 symlink), pip-audit — all green; local app checked end to end in the browser + 3 live uploads |
+| Pending human actions | Deploy the Space (`docs/DEPLOY.md`); run `notebooks/qwen_vl_cord.ipynb` on Kaggle and import it (M2.4); confirm `gemini-3.5-flash-lite` free-tier RPD in AI Studio; decide on a C-local test row, on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
+
+---
+
+## 2026-10-23 — M3.2 · Gradio Space (Results, Try it, Failures)
+
+**Done:**
+- **Order:** M3.2 was started before M3.1, by the human's explicit decision in chat (2026-10-23: "start M3.2 now while M2.3's runs wait on budgets; do M3.1 once the test results exist, and wire the Results/Failures tabs to whatever reports exist then"). M3.1 still follows when M2.3's test runs exist. The Results and Failures tabs read whatever `reports/` holds and show in-progress/empty states until then.
+- **Gradio/Pillow (human decision, chat 2026-10-23, option "Gradio 6.30 + Pillow 13"):**
+  - Gradio 5.50 (the spec's major version) requires `pillow<12` and has **6 known advisories** (PYSEC-2026-64/65/66/211/2178/2179, fixed in 6.6–6.16).
+  - **Every** Gradio release, including the latest 6.30.0 (2026-10-08), caps Pillow `<13`, while Pillow 11/12 have **6 known CVEs** (CVE-2026-96636/37/43/44/78, GHSA-78g4-xqwv-q3g8; fixed in 13.0). Pillow is on the untrusted-upload decoding path.
+  - Probed first in a throwaway venv in the scratchpad: Gradio 6.30 + Pillow 13.0 passed an upload → server-side PIL → image round-trip via `gradio_client`.
+  - Adopted: `gradio>=6.30,<7` plus `[tool.uv] override-dependencies = ["pillow>=13.0.0"]` (commented; remove once Gradio allows Pillow 13).
+  - `pip-audit`: no known vulnerabilities. New packages (Gradio's tree): fastapi 0.161.1, starlette 1.9.0, uvicorn 0.54.0, pandas 3.1.0, gradio-client 2.7.2, python-multipart 0.0.32, orjson, safehttpx, brotli, pydub, groovy, hf-gradio, opentelemetry-api, semantic-version, tomlkit, pytz, tzdata.
+  - "Gradio 5" → "Gradio 6" in every document header table, TRD §S1 and §S7.
+- **UI package** `src/receipt_extractor/ui/`. Gradio-free logic, tested without a browser:
+  - `views.py`: a column view-model per pipeline — line items, totals, badge with text (✓ reconciled / ⚠ needs review with the diff / ✕ invalid with the reason / • not checked), metadata strip (model · tokens · stage times · list cost · calls), and evidence (JSON or the invalid reply, OCR text). Money is shown as `Rp 51.000 (51000)` (the receipt's grouping next to the normalised number). A **cache-hit row says "replayed from cache" instead of showing ~0 s as model time**; the first version displayed "model 0.0 s", seen in the browser and fixed.
+  - `reports.py`: Results and Failures read only `reports/results.csv`, the report PNGs (alt text; the table is their equivalent), `reports/failures.csv` and `reports/failure_examples.jsonl` (written in M3.1). Fixed pipeline order; headline "Gemini vision: X field F1 vs OCR + LLM Y at Z× the cost" only when A and B rows exist, otherwise "Benchmark in progress…". Size-capped reads; malformed numbers show "—".
+  - `showcase.py` + CLI `receipt_extractor ui build-showcase`: bundles 6 CORD **validation** receipts (test ids refused), as display JPEGs ≤ 1,024 px with metadata stripped, plus their stored A and B results and run ids, taken from the newest run with a row (paused runs included). Built now from `A-24c9db2a7d6d` and `B-8ddf1a98d199` (both with M2.2 review flags; ≈ 0.5 MB).
+  - `live.py`: uploads. In order: `check_upload` (≤ 5 MB, PNG/JPEG/WebP magic, ≤ 4,096 px per side from the header, before decoding) → `DemoBudget` (per UTC day with `DEMO_MODE`, plus a provider-stop flag) → **pipeline A only, `origin="user_upload"`**. Async, so all calls share the event loop the LLM client's limiters live on. Outcomes are ok / rejected / paused / error, with an 8-char request id and plain-language messages; logs carry metadata only.
+  - `presenters.py`: maps a sample or a live outcome to the Try it outputs. B's column on an upload always reads "Vision model runs on sample receipts only (privacy)".
+- **App** `ui/app.py` + `theme.py`:
+  - Blocks with Results (default) · Try it · Failures · About, one builder per tab; callbacks only move values.
+  - `queue(default_concurrency_limit=2, max_size=20)`; `launch(max_file_size="5mb")`; `delete_cache=(300, 300)`; analytics off.
+  - Uploads arrive as a Gradio temp file, which `consume_upload` reads into memory and deletes at once (only inside temp dirs). Share/download buttons are removed from the upload, fullscreen only on samples.
+  - Theme: a `gr.themes.Base` subclass (slate + indigo, Inter / JetBrains Mono, radius md).
+  - Settings: `DEMO_DAILY_REQUESTS` (default 100, in `.env.example`).
+  - `app.py` puts `src/` on the path when the package is not installed (Space).
+- **Space packaging:**
+  - `requirements.txt` from `uv export --frozen --no-dev --no-hashes --no-emit-project --prune gradio` (Pillow 13 pinned; Gradio's subtree is left to the Space's `sdk_version`).
+  - `space/README.md`: front matter with `sdk_version: 6.30.0`, `app_file: app.py`, Python 3.12.
+  - `docs/DEPLOY.md`: every human step — refresh reports/showcase/requirements, `hf auth login`, `hf repos create … --type space --sdk gradio`, variables/secrets table (`GROQ_API_KEY` secret, `DEMO_MODE=true`, `DEMO_DAILY_REQUESTS`; **no** Gemini key), upload as an explicit per-path list so `.env`, `data/`, `runs/` and `.cache/` are never sent, checks, and the first-build risk with its fallbacks.
+  - `.claude/launch.json` for the local preview.
+- **Local app verified end to end** (`uv run python app.py`, browser pane + `gradio_client`):
+  - Results tab: in-progress headline, gold row, both charts.
+  - Try it: samples validation-0005 and -0033 show A and B with badges, IDR amounts and metadata.
+  - Failures: empty state. Phone width **360 px**: no horizontal overflow (`scrollWidth` 360), columns stack, all 3 images loaded with alt text.
+  - **3 real live uploads** of public CORD validation images through the running app (real RapidOCR + Groq, no cache): validation-0061 banner ok; validation-0062 **2.8 s** end to end (OCR 0.9 s, model 1.4 s, ✓ totals add up, 3 items); validation-0097 22.6 s, of which only 8.3 s was OCR + model — the rest was waiting on Groq's TPM pacing, shared with the A-naive eval running at the same time.
+  - After each upload, **no copy of the image remained** in Gradio's temp dir.
+- Tests (+50: 45 unit + 5 e2e):
+  - `tests/unit/ui/test_views_and_reports.py` (18): every badge state; money formats; malformed prediction rejected; cached replay shows no model time; Results headline/table/order/percent/seconds/cost from a CSV; in-progress and empty states; charts with alt text; Failures filters, detail and empty state.
+  - `tests/unit/ui/test_live.py` (22): input caps (empty, > 5 MB, GIF, corrupt, > 4,096 px); budget cap/reset/provider stop; **upload runs pipeline A as `user_upload`**; rejected and over-budget uploads never reach the pipeline; provider budget/429 → paused; missing key → "not configured" without details; unexpected errors are generic, with the request id and no exception text in the message or logs; the default service builds engineered PipelineA on `groq-oss-20b` with the demo cap; the live presenter never shows B; bundled samples (6, validation only, images present); temp upload read then deleted, refused outside temp dirs, oversize not read into memory; Space requirements keep Pillow 13 and leave Gradio to `sdk_version`, matching the tested Gradio.
+  - `tests/unit/ui/test_app_smoke.py` (5, `e2e`, **gradio_client against the real app on 127.0.0.1**): sample receipt (no model call); upload → pipeline A only; > 4,096 px rejected server-side; **> 5 MB upload refused**; **budget-exhausted banner** (samples still work).
+  - The obsolete stub test `tests/unit/test_ui_stub.py` was removed.
+- **Bugs caught by the tests and fixed:** with no demo cap, a provider "budget exhausted" did not stop live calls (`DemoBudget` now has an explicit stopped flag); Gradio did not inject `SelectData` while it was imported inside a function (Gradio is now imported at module level in `ui/app.py` only).
+- Gates: `ruff check` clean, `ruff format --check` clean (105 files), `mypy src` clean (57 files, strict), `pytest -q` **595 passed, 9 skipped** (8 live, 1 symlink; the 5 e2e Gradio smoke tests run in the default suite), `pip-audit` no known vulnerabilities.
+- Security:
+  - Uploads are untrusted: caps are checked before decode, Pillow is 13, there is no persistence beyond Gradio's temp file (deleted at once, plus the sweep), and logs carry metadata only.
+  - **No path from an upload to Gemini** (code plus the layer's data policy, tested); no Gemini key on the Space.
+  - Errors carry no stack traces or provider text.
+  - Queue and size limits bound resource use; the daily demo cap bounds the free-tier budget.
+  - The deploy commands upload an explicit allow-list (no secrets).
+  - The Google Fonts in the theme load from the visitor's browser (no server request).
+- Performance: samples are instant (cached); the live A path measured 2.8 s when Groq was not pacing.
+
+**Files:**
+- Added: `src/receipt_extractor/ui/{views,reports,showcase,live,presenters,app,theme}.py`, `src/receipt_extractor/ui/assets/showcase/` (`showcase.json` + 6 JPEGs), `requirements.txt`, `space/README.md`, `docs/DEPLOY.md`, `.claude/launch.json`, `tests/unit/ui/{__init__,test_views_and_reports,test_live,test_app_smoke}.py`.
+- Modified: `src/receipt_extractor/ui/__init__.py`, `src/receipt_extractor/cli.py` (`ui build-showcase`), `src/receipt_extractor/config.py` (`demo_daily_requests`), `app.py`, `.env.example`, `pyproject.toml` + `uv.lock` (gradio, Pillow override), `configs/runs/b-val10.yaml` (M2.2 params, after M2.1 closed), the header table of every doc, `TRD.md` §S1/§S7, `UI_UX_DESIGN.md` §2.3, `README.md`, `WORKLOG.md`.
+- Removed: `tests/unit/test_ui_stub.py`.
+
+**Decisions:**
+- Gradio 6.30 + Pillow 13 override (human decision above).
+- On the Space the package is not pip-installed (`src/` on the path instead), so pip never re-resolves Gradio's Pillow cap.
+- Samples are **validation** receipts with **stored** results; B never runs live on the Space (Gemini RPD, and a free tier that may use data), so the demo needs no Gemini key.
+- The Failures tab shows gold vs predicted JSON but not the image (no test images on the Space); UI_UX_DESIGN §2.3 updated.
+- No 2,000-char text cap: there is no text input.
+
+**Open:**
+- **Human action — deploy:** follow `docs/DEPLOY.md` (create the Space, set `GROQ_API_KEY` as a secret with `DEMO_MODE=true`, upload the listed paths), then add the Space URL here. **Check the first build:** if the Space builder resolves Gradio and `requirements.txt` together, the Pillow pin conflicts; the fallbacks are in DEPLOY.md.
+- **p95 < 8 s for pipeline A (TRD §S7) not yet verified:** only 3 live samples, taken while an eval run shared Groq's TPM. Measure ≥ 20 live uploads when no eval is running (≈ 40K Groq tokens), or on the Space after deploy.
+- Refresh before deploying: `report build` and `ui build-showcase` once M2.3/M3.1 produce test rows and `failure_examples.jsonl`. M3.1 must write `reports/failure_examples.jsonl` (`variant, case_id, gold, prediction`) for the Failures detail.
+- The project has no LICENSE file; the Space front matter therefore claims none (human decision).
+- Nothing committed.
+
+---
+
+## 2026-10-23 — M2.3 · Full 100-receipt test runs for A-naive, A and B (in progress: runs spread over free-tier days)
+
+**Done:**
+- Verified M2.2 first: its entry, the code and the gates (534 passed at its close). Test split touched for the first time here (TRD §5): no prompt or parsing change has been made since, and none will be without re-running every variant.
+- **Configs** `configs/runs/{a-naive,a,b}.yaml`: CORD test, all 100 receipts (sample seed 0), the 9 metrics, primary `field_f1`. Every behaviour-changing param is spelled out (prompt version, model alias, `max_tokens`, OCR settings, `max_repairs: 2`, `reconcile_tolerance: "0.005"`, image settings), because run ids hash params as written. Verified before running: all three resolve to the **same 100 ids** (ids hash `26b37b49a2bc…`, identical to `gold-9988f5dc0330`). Run ids: `A-naive-5ed10911e9ae`, `A-e8c045ee22e6`, `B-cea8aeff49d5`.
+- **Latency definition** (the open item from M1.3, settled before any test number exists):
+  - `CaseOutput.wait_ms` → `ResultRow.wait_ms` (time queued for free-tier pacing, capped at the case's wall clock) → `summary.service_latency_ms`;
+  - `reports/results.csv|md` `p50_ms`/`p95_ms` = latency **excluding pacing waits**, plus new `wall_p50_ms`/`wall_p95_ms`; the Markdown table says so in a sentence above it;
+  - provider retry backoff (429/503) stays in the headline (a real caller sees it);
+  - pre-M2.3 rows and summaries load unchanged (wait 0; the report falls back to wall clock);
+  - TRD §S5 and BACKEND_SCHEMA §S2/§S3 updated.
+- **Determinism check (testing requirement):** `test_report_regenerates_identically_from_the_same_runs` builds the reports twice from the same runs; `results.csv`, `results.md` and both PNG charts are **byte-identical**. Also new: the wait is recorded and excluded from service latency (and the report shows it), a wait longer than the case is capped, and an old summary falls back to wall clock.
+- **Runs so far:** `A-naive-5ed10911e9ae` **paused at 34/100**, 0 errors (22 pass, 12 fail; no metric quoted until complete): `daily token budget for 'groq-oss-20b' exhausted (195317/200000 used)`. ≈ 1.9K tokens per receipt (65,203 for 34). A and B not started (Groq and Gemini daily budgets used up for 2026-10-22 UTC).
+- Gates (final): `ruff check` clean, `ruff format --check` clean (95 files), `mypy src` clean (50 files, strict), `pytest -q` **551 passed, 9 skipped** (8 live, 1 symlink), `pip-audit` no known vulnerabilities.
+- Security: no new input; run configs are YAML via `safe_load`, paths confined (existing). Performance: the runs pause on budget instead of failing (respecting the free tiers) and resume by case id.
+
+**Files:** added `configs/runs/{a-naive,a,b}.yaml`; modified `src/receipt_extractor/eval/{tasks,records,runner,summary,report}.py`, `src/receipt_extractor/pipelines/tasks.py` (passes `llm_wait` as `wait_ms`), `tests/unit/eval/test_import_report.py`, `TRD.md` §S5, `BACKEND_SCHEMA.md` §S2/§S3, `WORKLOG.md`. Run artefacts (gitignored): `runs/A-naive-5ed10911e9ae/` (paused).
+
+**Decisions:**
+- Headline latency excludes free-tier pacing: on the free plan, waits measure Groq's token-per-minute limit, not the pipeline (M1.3: ≈ 2 s of model time showed as a ≈ 29 s case p50). Wall clock stays in the report, so nothing is hidden.
+- Retry backoff on provider errors (Gemini 503s) is *not* excluded: unlike pacing, it is the provider's behaviour as experienced by any caller.
+
+**Open — budget plan across days (CLAUDE.md §4; the same commands resume, each run picks up at the first missing case):**
+
+| UTC day | Groq (200K tokens/day) | Gemini Flash-Lite (20 requests/day, conservative) |
+|---|---|---|
+| 2026-10-23 | `a-naive.yaml` (66 left ≈ 125K tokens), then `a.yaml` until paused (first replies are new requests: A's cache key differs from A-naive's) | `b-val10.yaml` (4 left; closes M2.1), then `b.yaml` (~15) |
+| 2026-10-24 | `a.yaml` (≈ 190K tokens incl. re-asks) | `b.yaml` (~20) |
+| 2026-10-25 | `a.yaml` remainder if any | `b.yaml` (~20) |
+| 2026-10-26 → 28 | — | `b.yaml` (~20/day; 503 retries count against the budget) |
+
+Commands (run each day in this order; a paused run exits cleanly):
+```powershell
+uv run receipt_extractor eval run --config configs/runs/b-val10.yaml
+uv run receipt_extractor eval run --config configs/runs/a-naive.yaml
+uv run receipt_extractor eval run --config configs/runs/a.yaml
+uv run receipt_extractor eval run --config configs/runs/b.yaml
+uv run receipt_extractor report build
+```
+- Expected completion: A-naive 2026-10-23, A ≈ 2026-10-24/25, B ≈ 2026-10-28 (sooner if AI Studio shows a higher RPD for `gemini-3.5-flash-lite`; then raise `rpd` in `configs/models.yaml`).
+- Acceptance (`reports/results.csv` with A-naive, A and B on the same 100 ids, CIs, p50/p95 and $/1k) is **not met yet**.
+- **For the human:** whether `C-local` (local Qwen3-VL-4B, $0, no limits, ≈ 45 min CPU for 100 receipts at the clean median) should also get a test-split row. It is outside the plan's M2.3 scope, so it was not run on test.
+
+---
+
+## 2026-10-23 — M2.4 · Pipeline C — Qwen2.5-VL-3B on Kaggle + import (notebook ready; waiting for the human's Kaggle run)
+
+**Done:**
+- **Order:** prepared while M2.3's runs wait for free-tier budgets that reset daily. M2.3 is not done or skipped: it stays first and is closed when its runs complete. The notebook needs none of M2.3's numbers (same prompt, schema and ids). Human instruction in chat (2026-10-23): continue through the plan without waiting for approval.
+- **Notebook** `notebooks/qwen_vl_cord.ipynb`, **generated** by `src/receipt_extractor/pipelines/qwen_notebook.py` (`uv run python -m receipt_extractor.pipelines.qwen_notebook`), never edited by hand. From the repository it takes:
+  - prompt `b-v1` verbatim (the same as pipeline B);
+  - `CORD_REVISION` plus the test parquet's path and SHA-256 (`data.cord.CORD_FILES`);
+  - each test case's image SHA-256 → case id from `data/cord/manifest.json`.
+
+  The notebook finds our 100 ids **by image content** and stops if the parquet hash or any image differs or is missing. It also refuses to generate from a CORD prepared at another revision, or one where two cases share an image hash.
+- **Pinned:**
+  - `Qwen/Qwen2.5-VL-3B-Instruct` at commit `66285546d2b821cf421d4f5eb2576359d3770cd3` (Hub API, last modified 2025-04-06);
+  - `transformers==4.51.3` and `accelerate==1.6.0` (both checked on PyPI; Qwen2.5-VL needs transformers ≥ 4.49);
+  - torch, pyarrow and huggingface_hub come from Kaggle's image.
+- **What the notebook does:**
+  - float16 weights on a T4 (no bfloat16 there);
+  - processor `max_pixels` = 1,536²; the same upright + long-side ≤ 1,536 LANCZOS downscale as B;
+  - greedy decoding, ≤ 2,048 new tokens, `finish_reason` = `length` at the cap;
+  - CUDA-synchronised per-receipt timing, summed into `gpu_seconds`; out-of-memory becomes an `error` line;
+  - flushes `predictions.jsonl` after every receipt and skips done ids on re-run (resumable within a session);
+  - writes `manifest.json` (variant `C`, CORD test, sample seed 0, alias `qwen-vl-3b`, the 9 metrics, `prediction_format: receipt_reply`, `prompt_version: b-v1`, `kaggle{notebook, gpu, gpu_seconds}`).
+- **Import** (`eval/importer.py`):
+  - new manifest field `prediction_format` (`prediction` default | `receipt_reply`) and `prompt_version`; optional `finish_reason` on prediction lines;
+  - with `receipt_reply`, each reply text goes through `pipelines/replies.extraction_from_reply` → `ExtractionResult`. That uses the same `parse_receipt_text` (code fence tolerated, `Receipt` validation, so only `parse_amount` interprets numbers) and the same `review()` as A and B: attempts 1, `raw_text` kept when invalid, `truncated` at the token cap, $0, `stage_latency_ms.llm` = notebook latency;
+  - an invalid reply is an invalid *prediction* (`valid_json = 0`), not an import error;
+  - a non-string prediction under `receipt_reply` rejects the import;
+  - **Mismatched ids:** a case id outside the manifest's sample now **rejects the whole import** (previously skipped with a warning). The id and duplicate checks run as a pre-pass, so a bad file leaves no partial run.
+- `pipelines/replies.py`: `parse_receipt_reply` now delegates to a text-based `parse_receipt_text` (behaviour unchanged).
+- Tests (+17 unit):
+  - `tests/unit/eval/test_import_receipt_replies.py` (6): a code-fenced valid reply → pass with `ExtractionResult` fields (amounts "51.000" → 51000, model/prompt version, reconciled, latency, tokens, $0); valid but sums off → needs_review; invalid → `valid_json` false + raw_text; truncated; a non-text prediction rejected; **id not in sample and duplicate id → rejected before anything is written**; missing cases → error rows; the default format keeps predictions as given.
+  - `tests/unit/pipelines/test_qwen_notebook.py` (7): every code cell parses; prompt equals `b-v1`; revisions and SHA-256s pinned; pip pins exact; case map equals the manifest; the manifest the notebook writes validates as `ImportManifest` and names the `offline` alias; wrong revision / ambiguous hashes refused; deterministic render; **the committed notebook equals the generator's output**.
+  - The shared Kaggle fixture lost its deliberate out-of-sample line (now its own rejection test).
+- Lint: ruff lints `notebooks/*.ipynb` with T201/S101/E501/PTH123 ignored (progress prints, fail-loud asserts, generated constant lines) and does not format it (the generator owns its layout).
+- Gates: `ruff check` clean, `ruff format --check` clean (95 files), `mypy src` clean (50 files, strict), `pytest -q` **551 passed, 9 skipped**. `pip-audit`: no dependency changed since the last clean audit; re-run at M2.3's close.
+- Security: the import is a trust boundary (a file from Kaggle).
+  - Paths are confined to `data/` (existing).
+  - Lines are size-capped and parsed as JSON only.
+  - Reply text is validated by the strict `Receipt` model (≤ 500 items, bounded strings and amounts).
+  - Error texts are sanitised.
+  - A wrong or duplicate id aborts before any write.
+
+  The notebook downloads only pinned revisions and checks the dataset parquet by SHA-256. Model weights are pinned by commit but not hash-checked file by file; the Hub serves them by commit, and LFS files are content-addressed. The notebook sends no data anywhere.
+- Licence: `Qwen/Qwen2.5-VL-3B-Instruct` is under the **Qwen Research licence** (`qwen-research`, not gated). That suits a non-commercial benchmark; the human decides before publishing row C (noted in the notebook header too).
+
+**Files:** added `src/receipt_extractor/pipelines/qwen_notebook.py`, `notebooks/qwen_vl_cord.ipynb`, `tests/unit/eval/test_import_receipt_replies.py`, `tests/unit/pipelines/test_qwen_notebook.py`; modified `src/receipt_extractor/eval/importer.py`, `src/receipt_extractor/pipelines/replies.py`, `tests/unit/eval/test_import_report.py`, `pyproject.toml` (ruff settings for the notebook only), `TRD.md` §3/§4.2, `BACKEND_SCHEMA.md` §S2 (Kaggle import), `README.md`, `WORKLOG.md`.
+
+**Decisions:**
+- The notebook returns **raw replies** and the repository validates them, so the notebook carries no copy of `Receipt` or `parse_amount`, and C can never disagree with A and B on how "1.000" reads.
+- Ids are mapped by **image SHA-256**, not by re-implementing CORD's id derivation in the notebook (one source of truth, integrity check included).
+- Same prompt as B, with no JSON-schema constrained decoding (plain transformers has none); invalid output therefore counts against C, which is the comparison the table should show.
+- Out-of-sample ids reject the import (M2.4 testing requirement) instead of being skipped.
+
+**Open:**
+- **Human action (Kaggle):**
+  1. kaggle.com → New Notebook → File → Import Notebook → upload `notebooks/qwen_vl_cord.ipynb`.
+  2. Settings: Accelerator **GPU T4 ×1**, Internet **On**.
+  3. Run All (≈ 3 GB of downloads, then ~100 receipts; resumable).
+  4. From Output `/kaggle/working/qwen_vl/`, download `predictions.jsonl` and `manifest.json` into `data/imports/qwen_vl/`.
+  5. Run:
+     ```powershell
+     uv run receipt_extractor eval import-predictions data/imports/qwen_vl
+     uv run receipt_extractor report build
+     ```
+  Then row `C` exists and M2.4 closes (record the run id, field_f1 and GPU seconds here).
+- The notebook has not been executed here (no CUDA GPU); its code cells are syntax-checked and its data/ids logic is tested only through the generator. First-run issues on Kaggle (e.g. a transformers API change) should be fixed in the generator, not in Kaggle.
+- Decide on publishing row C under the Qwen Research licence.
+
+---
+
+## 2026-10-23 — M2.2 · Retries, arithmetic reconciliation and review flag
+
+**Done:**
+- Verified M2.1 first: code, tests and gates are in place (509 passed before M2.2) and its C-local run is complete. **M2.1 itself is still open on one external step** — B's validation run is paused at 6/10 on the Gemini free-tier daily budget, which resets at 00:00 UTC. M2.2 needs no Gemini call, so it went ahead in plan order. The human's instruction in chat (2026-10-23) was to continue through the plan without waiting for approval.
+- **Up to 2 re-asks** (FR-5, TRD §4.3): `LLMRequest.max_repairs` (1–2; default 1 keeps every pre-M2.2 caller and cache entry unchanged). The client's single repair became a bounded loop in a new private `LLMClient._repair` (extracted to stay within the statement limit, not suppressed): each re-ask appends the previous reply plus its Pydantic errors to the conversation so far; stages `llm:repair`, `llm:repair2`; a failed repair *call* returns the last invalid reply uncached, with every call so far in the accounting. `LLMResponse.attempts` is the exact number of calls (cached too; for older entries it is inferred from `repaired`).
+- **Cache rule:** `max_repairs` is **not** part of the cache key. A cached entry is reused only when consistent with the request's budget (a valid reply that needed no more repairs than allowed, or an invalid reply after exactly the allowed number); otherwise it is a miss and the new result replaces it. So switching A and B to 2 repairs re-sends nothing that was already valid. A first version put `max_repairs` in the key, which would have re-sent every A and B call (Gemini allows only 20 requests/day); caught before any run used it.
+- **Review:** `core/reconcile.reconcile`/`tolerance` take `rel_tolerance`/`abs_tolerance` (defaults unchanged, validated non-negative) and report `allowed`. `pipelines/replies.review()` sets `reconciled` (null without a valid receipt), `reconcile_diff` (item sum − subtotal when that check fails, else totals; 0 when reconciled) and `needs_review` (invalid after retries, nothing extracted, or not reconciled). Applied in `PipelineA` (engineered only — `A-naive` keeps all three null) and `PipelineB` (B and C-local). There is no re-ask on an arithmetic mismatch; the flag is for a human (TRD §4.3).
+- Run params `max_repairs` (1–2, default 2) and `reconcile_tolerance` (0–0.1, default 0.005) on `pipeline_a` and `pipeline_b`; `ExtractionResult.attempts` allows up to 3.
+- **Acceptance evidence** (validation, same 10 ids). The params are written explicitly into `configs/runs/{a-val10,c-local-val10}.yaml`, because run ids hash the params *as written*: without them the configs would have resumed the finished M1.3/M2.1 runs. Results:
+  - `A-24c9db2a7d6d`: 10/10, 0 errors, field_f1 0.9389 [0.8389, 1.0000].
+  - `C-local-f570f3318f3d`: 10/10, 0 errors, field_f1 0.9000 [0.7000, 1.0000].
+  - Every row has `attempts`, `reconciled`, `needs_review` and `reconcile_diff` populated. Both runs were served entirely from the cache (10/10 hits, **0 provider calls**), which confirms the cache rule. All first replies were valid, so `attempts` = 1 everywhere: no re-ask happened on real data, and the repair path is evidenced by the unit tests.
+  - 9/10 reconciled in each run; validation-0005 is `needs_review` with `reconcile_diff` 727 in both.
+- **validation-0005 is a false positive of the specified rule:** the gold itself does not reconcile. The item price 8,000 includes tax, while the subtotal is printed net (7,273 + 727 tax = 8,000). On validation gold this "item prices include tax" layout accounts for **2 of the 18** non-reconciling receipts (18/100 overall). The rule was left as TRD §4.3 specifies; this is an M3.1 candidate.
+- The flag cannot catch consistent-but-wrong extractions: validation-0038 (A, C-local) and -0065 (A) are wrong yet reconcile.
+- Tests (+25 unit):
+  - `tests/unit/test_llm_client.py`: second repair runs with the full conversation and numbered stages; stops at the first valid reply; gives up after `max_repairs`; a failed second repair returns parts so far, uncached; a valid cached reply is reused under a larger budget; an invalid cached reply is retried when more repairs are allowed and the better answer replaces it; a reply that needed 2 repairs is not served to a 1-repair request; attempts kept on cache hits and inferred for old entries; `max_repairs` bounded.
+  - `tests/unit/pipelines/test_review.py` (new): `review()` for a receipt that adds up, item sum off (diff = item diff), total off, **rounding within tolerance → reconciled** and stricter tolerance → not, tax-included layout → diff 0, no receipt → needs review; tolerance configurable and validated, scorer default untouched. Pipelines: **invalid→valid on retry** (3 calls, repair prompt carries the errors); **invalid twice with one repair → needs_review**; **valid but sums off → needs_review** in A and B; rounding within tolerance reconciled in B; naive bypasses retries and checks; empty OCR in engineered mode → needs review.
+  - `tests/unit/pipelines/test_tasks.py`: the two params validated on both tasks.
+  - Updated for the new contract: A's placeholder "flags null until M2.2", and the "gives up after one repair" tests in A, B and the B runner pass (now 3 calls).
+- Gates: `ruff check` clean, `ruff format --check` clean, `mypy src` clean (49 files, strict), `pytest -q` **534 passed, 9 skipped** (8 live, 1 symlink), `pip-audit` no known vulnerabilities.
+- Security: no new input or trust boundary. Repair prompts carry only Pydantic error locations and messages (`include_input=False`), never the invalid values. Each re-ask goes through the same data-policy check, budget, limiter and accounting as the first call, and the loop is capped at 2 by schema validation on `LLMRequest`.
+- Performance: at most 2 extra calls, only on invalid replies; the review is O(items). Free-tier impact is limited to receipts that need a re-ask, and the cache rule avoids re-sending valid ones.
+
+**Files:** added `tests/unit/pipelines/test_review.py`; modified `src/receipt_extractor/llm/{client,types}.py`, `src/receipt_extractor/core/{reconcile,extraction}.py`, `src/receipt_extractor/pipelines/{replies,pipeline_a,pipeline_b,tasks}.py`, `configs/runs/{a-val10,c-local-val10}.yaml`, `tests/unit/test_llm_client.py`, `tests/unit/pipelines/{test_pipeline_a,test_pipeline_b,test_tasks}.py`, `TRD.md` §4.3/§S3, `BACKEND_SCHEMA.md` §1.2, `APPFLOW.md` §3, `WORKLOG.md`. Run artefacts (gitignored): `runs/A-24c9db2a7d6d/`, `runs/C-local-f570f3318f3d/`.
+
+**Decisions:**
+- "≤ 2 attempts" means up to 2 re-asks (≤ 3 calls), following M1.3's recorded reading; it is a run param, so a 1-re-ask variant stays one config line away.
+- The loop lives in the LLM layer (one audited path; accounting per call), and the review lives in `pipelines/replies.py`, shared by every pipeline.
+- `needs_review` is true for anything without a valid, reconciling receipt, including `ocr_empty`; `reconciled` stays null when there is nothing to check, so "not checked" never reads as "doesn't add up".
+- The pipeline's tolerance is separate from the scorer's: tuning the flag never changes the `reconcile` metric.
+- The reconcile rule was not extended for tax-inclusive item prices (2/100 on validation): that would change the scorer's calibrated metric, and it belongs to M3.1's "one fix" if it ranks highest.
+
+**Open:**
+- **M2.1 completion (blocked until 00:00 UTC, 05:30 local):** `uv run receipt_extractor eval run --config configs/runs/b-val10.yaml` resumes `B-661916019452` (4 receipts left), then M2.1 is closed in its entry.
+- ~~B's M2.2 validation run~~ — done 2026-10-23: `b-val10.yaml` now spells out `max_repairs: 2` and `reconcile_tolerance: "0.005"`; run **`B-8ddf1a98d199`: 10/10, 0 errors, field_f1 0.9500 [0.8500, 1.0000]**, 10/10 served from the cache (**0 Gemini requests**), flags populated: 9 reconciled, validation-0005 `needs_review` (diff 727, the same tax-inclusive false positive as A).
+- Process note: run ids hash params as written, not code defaults. A code change to defaults plus an unchanged config would resume an old run with mixed behaviour, so M2.3's test configs must spell out `max_repairs`/`reconcile_tolerance` (and other behaviour-changing params).
+- M3.1 candidates: tax-inclusive item prices (reconcile false positive); consistent-but-wrong extractions that the flag cannot catch (validation-0038, -0065).
+- No human action needed for M2.2 itself. Nothing committed.
+
+---
+
+## 2026-10-22 — M2.1 · Pipeline B — Gemini Flash-Lite vision + local C-local variant (done 2026-10-23)
+
+**Done:**
+- Verified M1.3 first: commit `74b7534`, its WORKLOG entry, `pipelines/` (protocol, OCR, prompts, pipeline A, eval task), `ExtractionResult`; gates green at start (436 passed). Reused the `Pipeline` protocol, `ExtractionResult`, the LLM layer (data policy, cache, budget, repair, accounting, `FakeProvider`), the eval runner/task registry, `confine` + manifest SHA-256 checks, and A's untrusted-image checks.
+- **Shared image checks** `pipelines/images.py`: the size/format/dimension checks moved out of `ocr.py` unchanged (OCR re-imports them; its 25 tests pass as before) plus `prepare_model_image`: decode → EXIF transpose → downscale to `max_side` (default 1,536 px on the long side, LANCZOS, never upscaled) → re-encode in memory (JPEG q90 default, PNG optional), which also drops EXIF/GPS metadata; fails if the encoded copy exceeds 8 MB.
+- **Pipeline B** `pipelines/pipeline_b.py` (variant `B`): refuses any `origin` other than `public_dataset` with `DataPolicyError` **before the image is decoded**; image → `prepare_model_image` → `gemini-flash-lite` with `Receipt` as `response_model`, temperature 0, run seed, `max_tokens` 8,192, the layer's one repair. Records `image_width`/`image_height` (as sent), `image_tokens_in` and a new `prepare` stage latency. Prompt `b-v1` (`pipelines/prompts.py`): a-v3's field rules for an image, printed text declared untrusted, amounts as printed strings so `parse_amount` stays the only interpreter; the image goes first, then one instruction.
+- `pipelines/replies.py`: reply → `Receipt` | `schema_invalid` / `truncated` + capped `raw_text`, now shared by A and B (A's behaviour unchanged; M2.2 builds on it).
+- **Eval task** `pipeline_b` (`pipelines/tasks.py`): strict params (`model` alias, `prompt_version` must be a vision prompt, `max_tokens`, `image` settings); A and B now share one lazy-build/case base (`_PipelineTask`). `configs/runs/b-val10.yaml`: same split, sample (10, seed 0) and metrics as `a-val10`, so the same 10 ids.
+- **LLM layer (supporting changes):** `image_tokens_in` on `ChatResult` → `LLMResponse` (summed over a repair) → `LLMCallRecord`/`llm_calls.jsonl` and the cache entry (optional, so entries written before M2.1 still hit; tested). LiteLLM reports Gemini's per-modality usage as `usage.prompt_tokens_details.image_tokens`; `None` = not reported (never 0). **Gemini schema fix:** Gemini answered every `Receipt` request with HTTP 400 `INVALID_ARGUMENT`. Bisected with tiny synthetic text requests: plain text OK, seed OK, a one-field schema OK, `Receipt` schema 400; number/string unions normalised → still 400; `$defs` inlined → still 400; without `maxItems`/`minLength`/`maxLength` → OK. The adapter now strips `maxItems`/`minItems`/`minLength`/`maxLength` from the schema **sent** to `gemini/` models (`provider_schema`); property names and data values (`default`, `enum`, …) are untouched, the client still validates replies against the full Pydantic model, and the cache key still uses the full schema. Groq requests are unchanged.
+- **Model switch (human request in chat):** B uses the new alias `gemini-flash-lite` → `gemini/gemini-3.5-flash-lite` (`public_only`). `gemini-flash` (3.8 Flash) stays registered but unused: on 2026-10-22 it returned sustained HTTP 503 "model is currently experiencing high demand" (10 requests, all 503). Pricing page (checked 2026-10-22): free tier available, free-tier data may be used by Google, paid list price $0.30 in / $2.50 out per 1M tokens (`configs/pricing.yaml`). Limits: `rpm 15, tpm 250000` from LiteLLM's model map; **`rpd 20` is a conservative placeholder** copied from `gemini-flash` (Google shows free-tier limits only in AI Studio).
+- **Live smoke test** `tests/live/test_pipeline_b_live.py` (`-m live`; real CORD `validation-0000`, cache off): **1 passed** (schema valid, total = gold, `image_tokens_in` reported and < `tokens_in`).
+- **Validation run (acceptance — not yet complete):** `uv run receipt_extractor eval run --config configs/runs/b-val10.yaml` → run `B-661916019452`, **status `paused` at 6/10 cases, 0 errors**: `daily request budget for 'gemini-flash-lite' exhausted (20/20 used)`. Gemini 503s (and one timeout) were retried with backoff, and every attempt counts against the local daily budget. Preliminary per-case (not a result; final numbers come from the completed run's `summary.json`):
+
+  | case | status | field_f1 | attempts | image sent | image tokens | tokens in/out | list cost |
+  |---|---|---|---|---|---|---|---|
+  | validation-0005 | pass | 1.000 | 1 | 960×1280 | 1,064 | 1,584 / 102 | $0.00073 |
+  | validation-0033 | pass | 1.000 | 1 | 576×864 | 1,080 | 1,600 / 147 | $0.00085 |
+  | validation-0038 | fail | 0.500 | 1 | 864×1536 | 1,100 | 1,620 / 84 | $0.00070 |
+  | validation-0049 | pass | 1.000 | 1 | 1108×1478 | 1,064 | 1,584 / 164 | $0.00089 |
+  | validation-0051 | pass | 1.000 | 1 | 960×1280 | 1,064 | 1,584 / 154 | $0.00086 |
+  | validation-0053 | pass | 1.000 | 1 | 576×864 | 1,080 | 1,600 / 220 | $0.00103 |
+
+  All 6 schema-valid on the first attempt. validation-0038 is the receipt A also misses (`TT` item vs tax).
+- **Local vision variant `C-local` (human request in chat, 2026-10-22/23):** Qwen3-VL-4B on the laptop CPU through Ollama (0.32.6, already installed by the human), on B's code path. Findings while wiring it:
+  - The human's `qwen3-vl:4b` has the digest of **`qwen3-vl:4b-thinking`** (`a1b29c246319`); under a JSON schema it answers in Ollama's `thinking` field (content empty) with only `{total, currency}`, and `think: false` does not change that; without a schema the reply ran past a 15-min probe. The human pulled **`qwen3-vl:4b-instruct`** (`84f7ed8042fa`, Q4_K_M, capabilities completion/vision/tools).
+  - The instruct build *also* returned only `{total, currency}` (23 tokens): Ollama decodes against the schema as a grammar and the small model writes only the required keys (`Receipt` requires just `total`). With every property marked required in the schema sent, the same receipt came back complete (3 items, null subtotal/tax, correct total). Fixed in the adapter (`provider_schema` → `require_all_properties` for `ollama/`/`ollama_chat/`); replies are still validated against the real `Receipt`.
+  - Layer support: `ollama_chat/` (chat route, needed for images) accepted for provider `ollama`; per-alias `options` from an allow-list (`num_ctx`, `num_thread`, `keep_alive`) that cannot override model/key/endpoint/timeout/retries, in the cache key only when set; `PipelineB` takes `variant` and `timeout_s` (≤ 600 s); task params `variant`, `timeout_s`.
+  - Alias `ollama-qwen3-vl-4b` → `ollama_chat/qwen3-vl:4b-instruct`, `options: {num_ctx: 8192}`, `data_policy: any`, $0 price entry; run config `configs/runs/c-local-val10.yaml` (images ≤ 1,024 px, timeout 600 s, concurrency 1). The dataset-only origin guard still applies to `C-local`.
+  - Live smoke test `tests/live/test_local_vision_live.py` (skips without Ollama/the model/CORD): **1 passed** (47 s incl. model load; items present, total = gold).
+  - **Validation run `C-local-121f112aed1c`: completed 10/10, 0 errors, field_f1 0.9000 [0.7000, 1.0000]**, items P/R/F1 0.90, subtotal_f1 0.857 (n 7), tax_f1 0.833 (n 6), total_f1 0.90, valid_json 1.00, reconcile 0.90, 15,618 in / 1,348 out tokens, $0. The miss is validation-0038 (field_f1 0), the receipt A and B also miss.
+  - **Latency:** the run's p50 144 s / p95 155 s is **not representative** — the full test suite was running on the same CPU at the time. Clean re-timing, nothing else running, cache off, warm model: validation-0005 26.8 s, -0053 32.7 s, -0097 16.3 s → **median 26.8 s per receipt** (≈ 1.55K input incl. image, 80–190 output tokens). The first call after start-up adds ≈ 2.5 min to load the model.
+- **Acceptance met (2026-10-23, after the UTC budget reset):** `B-661916019452` resumed and **completed 10/10, 0 errors, field_f1 0.9500 [0.8500, 1.0000]** (4 new Gemini requests). Same 10 ids (validation, M2.1 code): A-naive 0.9389, A 0.9389, **B 0.9500**, C-local 0.9000.
+- **Same 10 ids so far (validation, M2.1 code), as recorded before the resume:** A-naive `A-naive-1a8804eab2a8` 0.9389, A `A-a5618f0e9121` 0.9389, C-local 0.9000; B 6/10 done (5 at 1.0, validation-0038 0.5) — final B number when the run completes.
+- **Image tokens:** ≈ 1,064–1,100 per receipt whether 576×864 or 1108×1478 was sent: Gemini 3.x bills a roughly fixed per-image budget here, so downscaling reduces the payload and the `prepare` time, not the token cost. 1,536 px kept (CORD images are ≤ 1,536 on the long side after resize; a lower cap would only risk legibility).
+- Tests (+57: 56 unit + 1 live): `test_images.py` (14: long-side downscale, no upscale, PNG/custom size, WebP/JPEG sources, EXIF rotation + metadata stripped, bad bytes, oversize, huge header dimensions, bounded settings). `test_pipeline_b.py` (16, FakeProvider): valid reply + image metadata + record, request shape (downscaled JPEG data URL, schema, temperature, seed, prompt), image settings applied, repair once (image tokens summed), invalid after repair, truncated; **policy refusal**: `user_upload` and `synthetic` raise `DataPolicyError` before the image is decoded (decoder patched to fail) with no provider call or record, also when B is pointed at a model without a policy; the layer refuses a user upload to a `public_only` alias on its own; every Gemini alias in `configs/models.yaml` is `public_only` and the default is `gemini-flash-lite`; cache re-run keeps image tokens; rejected image never reaches the model; prompt version checks; serialised form. `test_tasks.py` (+12: registration/defaults, 6 bad params, case image sent as `public_dataset`, tampered image, 3 full runner passes). `test_llm_client.py` (+4: image tokens over repair and per record, unknown stays `None`, cache hit keeps them, pre-M2.1 cache entry still hits). `test_llm_providers.py` (+10: image-token parsing ×6, Gemini schema stripping keeps names/data and does not mutate, `Receipt` sent to Gemini has no length bounds while Groq gets the full schema, adapter sends the provider schema ×2). Two existing assertions updated for the new `prepare` stage key.
+- Gates (B code, 2026-10-22): `ruff check` clean, `ruff format --check` clean (90 files), `mypy src` clean (49 files, strict; checks `PipelineB` against the `Pipeline` protocol), `pytest -q` **492 passed, 8 skipped** (7 live, 1 symlink), `pip-audit` no known vulnerabilities (no new dependencies).
+- Gates after the C-local work (2026-10-23): `ruff check`/`format --check` clean, `mypy src` clean, `pytest -q` **509 passed, 9 skipped** (8 live, 1 symlink) (+17 unit over 492: registry prefixes and option allow-list, client options and cache key, adapter options and Ollama required-schema, B variant/timeout, task params and the C-local config), live C-local smoke 1 passed.
+- Security: two independent guards keep user content away from Gemini (pipeline: origin check before decoding; layer: `public_only` on every Gemini alias), both tested; the eval task only ever passes `public_dataset` for manifest-verified CORD images confined to `data/`; images are validated before decoding, processed in memory, re-encoded without metadata, never logged (logs/records carry sizes, tokens, ms only); printed text in the image is declared untrusted in the prompt; the schema stripping only relaxes what is *sent* — replies are still validated against the full `Receipt` bounds (≤ 500 items, names ≤ 300 chars). Bisect probes used synthetic text only.
+- Performance: `prepare` 19–609 ms per receipt. `stage_latency_ms.llm` was 32–102 s on this run, but that includes 503/timeout retry backoff (the layer counts backoff as provider time), so it is not model latency.
+
+**Files:** added `src/receipt_extractor/pipelines/{images,pipeline_b,replies}.py`, `configs/runs/{b-val10,c-local-val10}.yaml`, `tests/unit/pipelines/{test_images,test_pipeline_b}.py`, `tests/live/{test_pipeline_b_live,test_local_vision_live}.py`; modified `src/receipt_extractor/llm/registry.py`, `tests/unit/test_llm_components.py` (C-local), and `src/receipt_extractor/pipelines/{__init__,ocr,pipeline_a,prompts,tasks}.py`, `src/receipt_extractor/core/extraction.py`, `src/receipt_extractor/llm/{client,fake,providers,types}.py`, `configs/models.yaml`, `configs/pricing.yaml`, `tests/unit/pipelines/{test_pipeline_a,test_tasks}.py`, `tests/unit/{test_llm_client,test_llm_providers}.py`, `PRD.md` FR-4, `TRD.md` §2/§3/§4.2/§S2/§S3, `BACKEND_SCHEMA.md` §1.2/§2/§S2, `APPFLOW.md` §2, `README.md`, `WORKLOG.md`. Run artefacts (gitignored): `runs/B-661916019452/` (paused).
+
+**Decisions:**
+- B refuses everything but `public_dataset`, stricter than the alias policy (which also allows `synthetic`): FR-4 says CORD images only. Hence the live smoke test uses a real CORD receipt, not a synthetic one.
+- B uses the engineered path (one repair) like `A`; there is no `B-naive` (not in the plan). M2.2 adds retries/reconciliation to both.
+- `gemini-flash-lite` as a new alias rather than repointing `gemini-flash`, so the alias name keeps meaning one model and earlier references stay valid.
+- Gemini's schema limits are handled in the provider adapter (per provider), not by weakening `Receipt`: the contract keeps its bounds and they are still enforced.
+- `image_tokens_in` is `None` when the provider does not report it, so "unknown" never reads as "free".
+- `C-local` is an **extra** variant next to the planned Kaggle M2.4 (`C`), not a replacement: the human did not choose between the two, and keeping both changes no task order. PRD FR-9 and TRD §3/§4.2 record it.
+- Provider quirks are handled in the adapter per provider (Gemini: strip length bounds; Ollama: require every property), never by weakening `Receipt`.
+- Temperature 0 kept for comparability with A, although LiteLLM warns that Gemini 3+ plans to remove `temperature` (still honoured today).
+
+**Open:**
+- ~~Acceptance not met yet~~ — met 2026-10-23 (`B-661916019452` completed, see Done).
+- **Human action:** confirm `gemini-3.5-flash-lite`'s free-tier RPM/RPD at https://aistudio.google.com/rate-limit and update `configs/models.yaml` (`limits`, `limits_checked`). If the real RPD is higher than 20, the run can resume today.
+- **M2.3 budget plan:** 100 test receipts for B ≈ 100–130 requests incl. repairs and 503 retries → **≈ 5–7 days at 20 RPD**, fewer once the real RPD is confirmed. Failed attempts count against the local budget; consider not counting 503 "high demand" attempts if Google confirms they are not billed against RPD (needs evidence first).
+- **Latency reporting (M2.3):** B's `llm` stage includes retry backoff for 503s; report model time separately (e.g. from successful attempts only) or define latency explicitly before publishing p50/p95.
+- `gemini-flash` (3.8 Flash) is unusable today (sustained 503s); left registered.
+- C-local on the 100 test receipts ≈ 45 min of CPU at the clean median (run it with nothing else on the machine, or the latency numbers are meaningless). Whether C-local goes into the M2.3 table is open for the human; it is not in the plan's M2.3 scope (A-naive, A, B).
+- Nothing committed.
 
 ---
 

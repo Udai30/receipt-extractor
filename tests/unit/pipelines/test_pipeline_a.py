@@ -85,7 +85,14 @@ async def test_valid_reply_gives_receipt_in_both_modes(
     assert latency.llm_wait is not None
     assert result.model_alias == "test-chat"
     assert result.prompt_version == DEFAULT_PROMPT_VERSION
-    assert result.reconciled is None and result.needs_review is None  # M2.2
+    if mode == "naive":  # the baseline has no checks
+        assert (result.reconciled, result.needs_review, result.reconcile_diff) == (None,) * 3
+    else:  # 36.000 + 15.000 = 51.000
+        assert (result.reconciled, result.needs_review, result.reconcile_diff) == (
+            True,
+            False,
+            Decimal(0),
+        )
 
     call = provider.calls[0]
     assert len(provider.calls) == 1
@@ -134,17 +141,21 @@ async def test_engineered_repairs_an_invalid_reply(
     ]
 
 
-async def test_engineered_gives_up_after_one_repair(
+async def test_engineered_gives_up_after_two_repairs(
     make_client: Factory, receipt_ocr: OcrStage
 ) -> None:
-    provider = FakeProvider([FakeReply(text=INVALID), FakeReply(text="still {not json")])
+    provider = FakeProvider(
+        [FakeReply(text=INVALID), FakeReply(text=INVALID), FakeReply(text="still {not json")]
+    )
     result = await pipeline(make_client, provider, "engineered", receipt_ocr).extract(
         png_bytes(), origin="public_dataset"
     )
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == 3
     assert result.receipt is None
-    assert (result.attempts, result.failure) == (2, "schema_invalid")
+    assert (result.attempts, result.failure) == (3, "schema_invalid")
     assert result.raw_text == "still {not json"
+    # Invalid after retries → needs review; nothing to reconcile.
+    assert (result.needs_review, result.reconciled, result.reconcile_diff) == (True, None, None)
 
 
 @pytest.mark.parametrize(("mode", "calls"), [("naive", 1), ("engineered", 2)])
@@ -248,7 +259,7 @@ async def test_serialised_result_omits_ocr_text_and_scores_as_prediction(
     )
     stored = to_jsonable_python(result)
     assert "ocr_text" not in stored
-    assert stored["stage_latency_ms"].keys() == {"ocr", "llm", "llm_wait", "validate"}
+    assert stored["stage_latency_ms"].keys() == {"ocr", "prepare", "llm", "llm_wait", "validate"}
     assert Decimal(stored["list_cost_usd"]) == Decimal("0.00002")  # money as a string
     assert Receipt.model_validate(stored["receipt"]) == result.receipt
 

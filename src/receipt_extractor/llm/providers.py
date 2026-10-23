@@ -9,6 +9,16 @@ A structured-output request whose reply the *provider* rejects against the schem
 HTTP 400 ``json_validate_failed``) is not a request error: the model answered, just not in
 shape. It is returned as a reply (the rejected text, ``finish_reason = "schema_rejected"``)
 so the client's own validation/repair handles it like any other invalid reply.
+
+Gemini rejects the whole request (HTTP 400 ``INVALID_ARGUMENT``) when the response schema carries
+length bounds (``maxItems``, ``minLength``, ``maxLength``; found in M2.1). They are stripped from
+the schema *sent* to ``gemini/`` models; the client still validates every reply against the full
+Pydantic model, so the bounds are enforced all the same.
+
+Ollama decodes against the schema as a grammar, and a small model then writes only the
+*required* keys (``Receipt``: just ``total``) and stops — no items (M2.1, Qwen3-VL-4B). For
+``ollama/``/``ollama_chat/`` models every object property is marked required in the schema
+sent; optional fields stay nullable, so the model writes ``null`` for what is not printed.
 """
 
 from __future__ import annotations
@@ -36,6 +46,9 @@ _HTTP_BAD_REQUEST = 400
 SCHEMA_REJECTED = "schema_rejected"
 _SCHEMA_REJECTION_CODES = frozenset({"json_validate_failed"})
 _MAX_REJECTED_TEXT_CHARS = 64_000
+_GEMINI_UNSUPPORTED_KEYWORDS = frozenset({"maxItems", "minItems", "minLength", "maxLength"})
+_SCHEMA_MAPS = frozenset({"properties", "$defs", "definitions", "patternProperties"})
+_SCHEMA_VALUES = frozenset({"default", "enum", "const", "examples"})  # data, not schemas
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +65,7 @@ class ChatCall:
     schema_name: str = "response"
     api_key: str | None = field(default=None, repr=False)
     api_base: str | None = None
+    options: dict[str, Any] = field(default_factory=dict)  # alias options (registry allow-list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +74,7 @@ class ChatResult:
     tokens_in: int | None
     tokens_out: int | None
     finish_reason: str | None = None
+    image_tokens_in: int | None = None  # part of tokens_in, when the provider reports it
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +177,75 @@ def schema_rejection_text(exc: BaseException) -> str | None:
     return generation[:_MAX_REJECTED_TEXT_CHARS] if isinstance(generation, str) else ""
 
 
+def strip_schema_keywords(schema: Any, keywords: frozenset[str]) -> Any:
+    """A copy of JSON ``schema`` without ``keywords`` anywhere a sub-schema can appear.
+
+    Property names (keys of ``properties``/``$defs``) and data values (``default``, ``enum``, …)
+    are left alone, so a field that happens to be called ``maxLength`` survives.
+    """
+    if isinstance(schema, list):
+        return [strip_schema_keywords(item, keywords) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in keywords:
+            continue
+        if key in _SCHEMA_VALUES:
+            out[key] = value
+        elif key in _SCHEMA_MAPS and isinstance(value, dict):
+            out[key] = {name: strip_schema_keywords(sub, keywords) for name, sub in value.items()}
+        else:
+            out[key] = strip_schema_keywords(value, keywords)
+    return out
+
+
+def require_all_properties(schema: Any) -> Any:
+    """A copy of JSON ``schema`` where every object sub-schema lists all its properties as required.
+
+    Walks sub-schemas the same way as :func:`strip_schema_keywords` (property names and data
+    values are not schemas).
+    """
+    if isinstance(schema, list):
+        return [require_all_properties(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in _SCHEMA_VALUES:
+            out[key] = value
+        elif key in _SCHEMA_MAPS and isinstance(value, dict):
+            out[key] = {name: require_all_properties(sub) for name, sub in value.items()}
+        else:
+            out[key] = require_all_properties(value)
+    properties = out.get("properties")
+    if isinstance(properties, dict) and properties:
+        out["required"] = list(properties)
+    return out
+
+
+def provider_schema(model: str, schema: dict[str, Any]) -> dict[str, Any]:
+    """The response schema as ``model``'s provider accepts it (see the module docstring)."""
+    if model.startswith("gemini/"):
+        stripped: dict[str, Any] = strip_schema_keywords(schema, _GEMINI_UNSUPPORTED_KEYWORDS)
+        return stripped
+    if model.startswith(("ollama/", "ollama_chat/")):
+        required: dict[str, Any] = require_all_properties(schema)
+        return required
+    return schema
+
+
 def _usage(response: Any, key: str) -> int | None:
     usage = getattr(response, "usage", None)
     value = getattr(usage, key, None) if usage is not None else None
+    return value if isinstance(value, int) and value >= 0 else None
+
+
+def _image_tokens_in(response: Any) -> int | None:
+    """Input tokens spent on images (Gemini reports tokens per modality), if reported."""
+    usage = getattr(response, "usage", None)
+    details = getattr(usage, "prompt_tokens_details", None) if usage is not None else None
+    value = getattr(details, "image_tokens", None) if details is not None else None
     return value if isinstance(value, int) and value >= 0 else None
 
 
@@ -174,6 +255,7 @@ class LiteLLMProvider:
     async def complete(self, call: ChatCall) -> ChatResult:
         litellm = _litellm()
         kwargs: dict[str, Any] = {
+            **call.options,  # first, so the arguments below always win
             "model": call.model,
             "messages": call.messages,
             "temperature": call.temperature,
@@ -191,7 +273,10 @@ class LiteLLMProvider:
             # Not `strict`: Pydantic schemas rarely meet strict-mode rules; the client validates.
             kwargs["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": call.schema_name, "schema": call.json_schema},
+                "json_schema": {
+                    "name": call.schema_name,
+                    "schema": provider_schema(call.model, call.json_schema),
+                },
             }
         secrets = [call.api_key] if call.api_key else []
         try:
@@ -214,6 +299,7 @@ class LiteLLMProvider:
             tokens_in=_usage(response, "prompt_tokens"),
             tokens_out=_usage(response, "completion_tokens"),
             finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+            image_tokens_in=_image_tokens_in(response),
         )
 
     async def embed(self, call: EmbedCall) -> EmbedResult:

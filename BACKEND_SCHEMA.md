@@ -12,7 +12,7 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
 | Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
 | Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
-| Interface | Gradio 5 → Hugging Face Space |
+| Interface | Gradio 6 → Hugging Face Space |
 | Status | Specification v2 (lean) · 2026-10-22 |
 
 ---
@@ -62,15 +62,19 @@ ocr_text_chars, stage_latency_ms{ocr, llm, validate}`.
 Implemented in `core/extraction.py` (M1.3), strict and frozen:
 | Field | Type | Notes |
 |---|---|---|
-| pipeline | str | variant name: `A-naive`, `A` (later `B`, `C`) |
+| pipeline | str | variant name: `A-naive`, `A`, `B`, `C-local` (later `C`) |
 | receipt | `Receipt` \| null | null when invalid or nothing to structure |
 | schema_valid | bool | `receipt` is not null |
-| attempts | int | LLM calls: 0 (no OCR text), 1, or 2 (repaired) |
-| reconciled / needs_review / reconcile_diff | bool / bool / Decimal \| null | null until M2.2 |
+| attempts | int | LLM calls: 0 (no OCR text), 1, or up to 3 (≤ 2 repairs, M2.2) |
+| reconciled | bool \| null | arithmetic check passed (TRD §4.3); null for `A-naive` or without a valid receipt |
+| reconcile_diff | Decimal \| null | signed diff of the failing check (item sum − subtotal if that fails, else (subtotal or Σ items) + tax − total); 0 when reconciled |
+| needs_review | bool \| null | invalid after retries, nothing extracted, or not reconciled; null for `A-naive` |
 | failure | `ocr_empty` \| `schema_invalid` \| `truncated` \| null | why `receipt` is null |
 | model_alias, prompt_version | str \| null | |
 | ocr_text_chars, ocr_lines, ocr_truncated | int, int, bool | OCR metadata (A only) |
-| stage_latency_ms | `{ocr, llm, llm_wait, validate}` (ms \| null) | `llm` excludes free-tier pacing waits, which are `llm_wait` (TRD §S3) |
+| image_width, image_height | int \| null | the image as sent to a vision model, after downscaling (B, C-local) |
+| image_tokens_in | int \| null | the part of `tokens_in` spent on the image, as reported by the provider (B; null when not reported) |
+| stage_latency_ms | `{ocr, prepare, llm, llm_wait, validate}` (ms \| null) | `prepare` = B's decode + downscale + re-encode; `llm` excludes free-tier pacing waits, which are `llm_wait` (TRD §S3) |
 | tokens_in, tokens_out, list_cost_usd | int, int, Decimal string | summed over the receipt's calls |
 | cache_hit | bool | served from the disk cache (latencies then ≈ 0) |
 | raw_text | str \| null | the model reply, only when it did not validate (≤ 8,000 chars) |
@@ -99,7 +103,8 @@ price; `match` = both.
 - `data/cord/splits/<split>.txt` — the split's ids, one per line.
 - `data/cord/raw/data/*.parquet` — the pinned source files (verified by size + SHA-256).
 - `configs/runs/{a-naive,a,b,c}.yaml` — run configs (test split, M2.3+);
-  `configs/runs/{a-naive,a}-val10.yaml` — 10 validation receipts for prompt tuning (M1.3).
+  `configs/runs/{a-naive,a,b,c-local}-val10.yaml` — 10 validation receipts for prompt tuning
+  (M1.3, M2.1).
 - `data/imports/qwen_vl/` — Kaggle predictions + manifest (stretch).
 
 ---
@@ -123,16 +128,19 @@ price; `match` = both.
 | gold | object | project-specific (§1) |
 | details | object | `metrics{name: value}` (every configured metric), plus task details; `error` on error rows |
 | latency_ms | int | wall clock for the case |
+| wait_ms | int | part of `latency_ms` spent queued for free-tier pacing (budget, rate limiter, concurrency slot); 0 in rows before M2.3 |
 | tokens_in / tokens_out | int | summed over the case's LLM calls |
 | list_cost_usd | str (Decimal) | |
 
 ### `LLMCallRecord` — one line of `runs/<run_id>/llm_calls.jsonl`
-`provider, model, alias, case_id, stage, tokens_in, tokens_out, latency_ms, wait_ms, cache_hit, retries,
-schema_valid (null if no schema), list_price_usd, actual_cost_usd, error (null on success), ts`.
+`provider, model, alias, case_id, stage, tokens_in, tokens_out, image_tokens_in (null unless the
+provider reports it), latency_ms, wait_ms, cache_hit, retries, schema_valid (null if no schema),
+list_price_usd, actual_cost_usd, error (null on success), ts`.
 
 ### `summary.json`
 `run_id, variant, dataset_name, dataset_split, sample_size, primary_metric,
-metrics{name: {value, ci_low, ci_high, n}}, status_counts{pass, fail, error}, latency_ms{p50, p95, p99?},
+metrics{name: {value, ci_low, ci_high, n}}, status_counts{pass, fail, error}, latency_ms{p50, p95, p99?}
+(wall clock), service_latency_ms{p50, p95, p99?} (wall clock − `wait_ms`; absent before M2.3),
 tokens{in, out}, list_cost_usd_per_1k, n_errors, started_at, finished_at`.
 Written only when every selected case has a row. Error rows count as 0 for every metric; CIs are
 95 % percentile bootstrap (seeded); p99 only from 500 cases.
@@ -144,15 +152,22 @@ Written when the run starts and kept on resume.
 
 ### Kaggle import (`data/imports/<name>/`, read by `cli eval import-predictions`)
 - `manifest.json`: `format_version (1), variant, dataset, sample, models, metrics, primary_metric,
-  pass_threshold, seed, bootstrap, kaggle{notebook, gpu, gpu_seconds}` — `dataset`/`sample` exactly as
+  pass_threshold, seed, bootstrap, kaggle{notebook, gpu, gpu_seconds}, prediction_format
+  (prediction | receipt_reply, default prediction), prompt_version?` — `dataset`/`sample` exactly as
   in a run config.
-- `predictions.jsonl`: `case_id, prediction | error, latency_ms, tokens_in?, tokens_out?, details?`.
-  Selected cases without a line become `error` rows; duplicates or unknown keys reject the import.
+- `predictions.jsonl`: `case_id, prediction | error, latency_ms, tokens_in?, tokens_out?,
+  finish_reason?, details?`. With `receipt_reply`, `prediction` is the model's raw reply text; the
+  importer validates it against `Receipt` and stores an `ExtractionResult` (attempts 1, review flags
+  set, `raw_text` kept when invalid, $0). Selected cases without a line become `error` rows;
+  duplicates, a case id outside the sample (M2.4) or unknown keys reject the whole import before
+  anything is written.
 
 ## S3. Reports (committed)
 
 - `reports/results.csv` — one row per (variant, subset): run id, primary metric ± CI, secondary
-  metrics, p50/p95 latency, $/1k, notes. Drives the README table and the Space.
+  metrics, `p50_ms`/`p95_ms` (service latency: excluding free-tier pacing waits; wall clock for
+  summaries written before M2.3), `wall_p50_ms`/`wall_p95_ms`, $/1k, notes. Drives the README
+  table and the Space. Regenerates byte-identically from the same runs (tested).
 - `reports/failures.csv` — `run_id, case_id, variant, status, score, failure_label, note, fixed_by`
   (labels hand-written; `note` is pre-filled with the error message; labels survive re-export).
 - `reports/*.png` — `primary_metric.png`, `cost_per_1k.png`, regenerated by `cli report build`.

@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # Runtime behaviour
     log_level: LogLevel = "INFO"
     demo_mode: bool = False
+    # Live (upload) extractions allowed per UTC day on the public demo when DEMO_MODE is on.
+    demo_daily_requests: int = Field(default=100, ge=0, le=10_000)
 
 
 def _describe(error: ValidationError) -> str:

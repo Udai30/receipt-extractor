@@ -46,6 +46,20 @@ models:
     limits_checked: 2026-10-19
     source: https://ai.google.dev/gemini-api/docs/rate-limits
 
+  # Pipeline B's default since M2.1 (cheaper than gemini-flash; gemini-flash returned sustained
+  # 503 "high demand" on 2026-10-22). Free tier confirmed on the pricing page; Google lists
+  # free-tier limits in AI Studio only, so rpm/tpm are LiteLLM's figures and rpd keeps the
+  # conservative 20 of gemini-flash. Confirm at https://aistudio.google.com/rate-limit.
+  gemini-flash-lite:
+    provider: gemini
+    kind: chat
+    model: gemini/gemini-3.5-flash-lite
+    max_output_tokens: 65536
+    data_policy: public_only
+    limits: { rpm: 15, tpm: 250000, rpd: 20 }
+    limits_checked: 2026-10-22
+    source: https://ai.google.dev/gemini-api/docs/rate-limits
+
   # Local embeddings via Ollama (CPU, no data leaves the machine). Not used by a pipeline
   # yet; it backs embed() and its live smoke test. `ollama pull nomic-embed-text` first.
   ollama-embed:
@@ -53,6 +67,18 @@ models:
     kind: embedding
     model: ollama/nomic-embed-text
     data_policy: any
+
+  # Local vision LLM on the laptop CPU (Ollama; nothing leaves the machine, no rate limits).
+  # The instruct build: `qwen3-vl:4b` is the *thinking* build (same digest as 4b-thinking), which
+  # answers in its reasoning channel under a JSON schema (M2.1 probe). ollama_chat/ = the chat
+  # route, needed for images. num_ctx covers one ≤1,024 px receipt image (~1.5K tokens) + prompt
+  # + reply; Ollama's server default is smaller. `ollama pull qwen3-vl:4b-instruct` first.
+  ollama-qwen3-vl-4b:
+    provider: ollama
+    kind: chat
+    model: ollama_chat/qwen3-vl:4b-instruct
+    data_policy: any
+    options: { num_ctx: 8192 }
 
   donut-cord:
     provider: local

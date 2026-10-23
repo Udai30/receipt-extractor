@@ -5,7 +5,16 @@ Expected layout of the output directory (under ``data/``, e.g. ``data/imports/qw
     manifest.json       ImportManifest: variant, dataset + sample (as in a run config),
                         metrics, models, kaggle {notebook, gpu, gpu_seconds}
     predictions.jsonl   one PredictionLine per case: case_id, prediction | error, latency_ms,
-                        optional tokens_in / tokens_out / details
+                        optional tokens_in / tokens_out / finish_reason / details
+
+``prediction_format`` in the manifest says what ``prediction`` holds: ``prediction`` (default) —
+the prediction object as scored; ``receipt_reply`` — the model's raw reply *text*, validated here
+against ``Receipt`` and turned into an ``ExtractionResult`` with the same code as pipelines A and
+B (so amounts are interpreted only by ``parse_amount``, and a reply that does not validate is an
+invalid prediction, scored ``valid_json = 0``, not an import error).
+
+A case id outside the manifest's sample rejects the whole import: it means the notebook and this
+repository disagree on ids, and scoring anything from such a file would be unsafe.
 
 The importer scores each prediction against the same dataset gold with the same metrics as a
 local run, streaming line by line. Selected cases with no prediction become ``error`` rows
@@ -64,6 +73,8 @@ class ImportManifest(BaseModel):
     seed: int = 0
     bootstrap: BootstrapSpec = Field(default_factory=BootstrapSpec)
     kaggle: KaggleInfo
+    prediction_format: Literal["prediction", "receipt_reply"] = "prediction"
+    prompt_version: Name | None = None
 
 
 class PredictionLine(BaseModel):
@@ -75,6 +86,7 @@ class PredictionLine(BaseModel):
     latency_ms: int = Field(ge=0)
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
+    finish_reason: str | None = Field(default=None, max_length=64)
     details: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -97,6 +109,8 @@ def _run_config(manifest: ImportManifest, predictions_sha256: str) -> RunConfig:
             params={
                 "predictions_sha256": predictions_sha256,
                 "kaggle": manifest.kaggle.model_dump(mode="json"),
+                "prediction_format": manifest.prediction_format,
+                "prompt_version": manifest.prompt_version,
             },
             dataset=manifest.dataset,
             sample=manifest.sample,
@@ -144,19 +158,12 @@ async def import_predictions(source_dir: str | Path, root: Path) -> RunOutcome:
 
     prepared = prepare_config(_run_config(manifest, sha256_file(predictions_path)), root)
     config = prepared.config
-    selected = set(prepared.case_ids)
-    seen: set[str] = set()
-    skipped = 0
+    # Checked in full before anything is written, so a bad file leaves no partial run.
+    _check_case_ids(predictions_path, frozenset(prepared.case_ids))
 
     with open_session(prepared, kaggle=manifest.kaggle) as session:
         metrics = session.metrics
         for line in _iter_predictions(predictions_path):
-            if line.case_id in seen:
-                raise PredictionImportError(f"duplicate prediction for case {line.case_id!r}")
-            seen.add(line.case_id)
-            if line.case_id not in selected:
-                skipped += 1
-                continue
             if line.case_id in session.finished:
                 continue
             gold = to_jsonable_python(prepared.dataset.load_case(line.case_id).gold)
@@ -172,12 +179,13 @@ async def import_predictions(source_dir: str | Path, root: Path) -> RunOutcome:
                     tokens_out=line.tokens_out,
                 )
             else:
-                status, score, scored = score_case(line.prediction, gold, config, metrics)
+                prediction = _prediction(line, manifest)
+                status, score, scored = score_case(prediction, gold, config, metrics)
                 row = ResultRow(
                     case_id=line.case_id,
                     status=status,
                     score=score,
-                    prediction=line.prediction,
+                    prediction=prediction,
                     gold=gold,
                     details={**line.details, **scored},
                     latency_ms=line.latency_ms,
@@ -199,6 +207,39 @@ async def import_predictions(source_dir: str | Path, root: Path) -> RunOutcome:
                 )
             )
         outcome = session.outcome("completed", session.finalize())
-    if skipped:
-        logger.warning("ignored %d prediction(s) for case ids outside the sample", skipped)
     return outcome
+
+
+def _check_case_ids(path: Path, selected: frozenset[str]) -> None:
+    seen: set[str] = set()
+    for line in _iter_predictions(path):
+        if line.case_id in seen:
+            raise PredictionImportError(f"duplicate prediction for case {line.case_id[:64]!r}")
+        seen.add(line.case_id)
+        if line.case_id not in selected:
+            raise PredictionImportError(
+                f"prediction for case {line.case_id[:64]!r}, which is not in the manifest's"
+                " sample: the notebook and this repository disagree on case ids"
+            )
+
+
+def _prediction(line: PredictionLine, manifest: ImportManifest) -> Any:
+    if manifest.prediction_format == "prediction":
+        return line.prediction
+    if not isinstance(line.prediction, str):
+        raise PredictionImportError(
+            f"case {line.case_id[:64]!r}: a receipt_reply prediction must be the reply text"
+        )
+    from receipt_extractor.pipelines.replies import extraction_from_reply  # noqa: PLC0415
+
+    result = extraction_from_reply(
+        line.prediction,
+        variant=manifest.variant,
+        model_alias=manifest.models[0] if manifest.models else None,
+        prompt_version=manifest.prompt_version,
+        finish_reason=line.finish_reason,
+        tokens_in=line.tokens_in,
+        tokens_out=line.tokens_out,
+        llm_ms=line.latency_ms,
+    )
+    return to_jsonable_python(result)

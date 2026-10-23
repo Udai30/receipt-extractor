@@ -1,0 +1,42 @@
+# M2.3 benchmark — Pipeline A, naive baseline: RapidOCR → groq-oss-20b, one structured-output
+# call, no repair, no checks. All 100 CORD test receipts; the test split is touched only here
+# (TRD §5): no prompt change after seeing these results without re-running every variant.
+# Every behaviour-changing param is spelled out, because run ids hash the params as written.
+# Groq free plan: ≈ 2–4K tokens per receipt against 200K tokens/day; the budget tracker pauses
+# the run and the same command resumes it the next UTC day (plan in WORKLOG M2.3).
+#   uv run receipt_extractor eval run --config configs/runs/a-naive.yaml
+variant: A-naive
+task: pipeline_a
+params:
+  mode: naive
+  model: groq-oss-20b
+  prompt_version: a-v3
+  max_tokens: 4096
+  ocr:
+    det_max_side: 960
+    use_angle_cls: false
+    threads: 4
+    min_text_score: 0.5
+dataset:
+  kind: cord
+  split: test
+sample:
+  seed: 0                  # no ids/size: all 100 test receipts
+models:
+  - groq-oss-20b
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 2

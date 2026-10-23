@@ -27,7 +27,8 @@ FailureKind = Literal["ocr_empty", "schema_invalid", "truncated"]
 class StageLatency(BaseModel):
     """Wall-clock milliseconds per stage; ``None`` when the stage did not run.
 
-    ``ocr`` is engine time (excluding the wait for the engine lock). ``llm`` is time in the
+    ``ocr`` is engine time (excluding the wait for the engine lock); ``prepare`` is pipeline B's
+    decode + downscale + re-encode of the image. ``llm`` is time in the
     provider calls (incl. retry backoff and the repair call); ``llm_wait`` is the time those
     calls were queued for the free-tier budget, rate limiter or a concurrency slot — an
     artefact of pacing, kept apart so it does not pass for model latency. On a cache hit both
@@ -40,6 +41,7 @@ class StageLatency(BaseModel):
     )
 
     ocr: int | None = Field(default=None, ge=0)
+    prepare: int | None = Field(default=None, ge=0)
     llm: int | None = Field(default=None, ge=0)
     llm_wait: int | None = Field(default=None, ge=0)
     validate_: int | None = Field(default=None, ge=0, alias="validate")
@@ -53,17 +55,28 @@ class ExtractionResult(BaseModel):
     pipeline: str = Field(min_length=1, max_length=64)
     receipt: Receipt | None
     schema_valid: bool
-    attempts: int = Field(ge=0, description="LLM calls made: 0 (nothing to send), 1, or 2")
-    # Arithmetic reconciliation and the review flag arrive with M2.2; None = not checked.
+    attempts: int = Field(
+        ge=0, le=3, description="LLM calls made: 0 (nothing to send), 1, or up to 3 with repairs"
+    )
+    # Arithmetic check and review flag (M2.2, TRD §4.3). None = not checked: A-naive always;
+    # `reconciled`/`reconcile_diff` also when there is no valid receipt to check.
     reconciled: bool | None = None
     needs_review: bool | None = None
-    reconcile_diff: Decimal | None = None
+    reconcile_diff: Decimal | None = Field(
+        default=None, description="Signed difference of the failing check (0 when reconciled)"
+    )
     failure: FailureKind | None = None
     model_alias: str | None = None
     prompt_version: str | None = None
     ocr_text_chars: int | None = Field(default=None, ge=0)
     ocr_lines: int | None = Field(default=None, ge=0)
     ocr_truncated: bool = False
+    # Vision pipelines (B): the image as sent (after downscaling) and its input-token cost.
+    image_width: int | None = Field(default=None, ge=1)
+    image_height: int | None = Field(default=None, ge=1)
+    image_tokens_in: int | None = Field(
+        default=None, ge=0, description="Part of tokens_in spent on the image, if reported"
+    )
     stage_latency_ms: StageLatency = Field(default_factory=StageLatency)
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)

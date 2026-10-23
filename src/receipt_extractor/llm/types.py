@@ -112,8 +112,9 @@ class LLMRequest(BaseModel):
     """A chat completion request against a model alias.
 
     ``response_model`` turns on structured output: its JSON schema is sent as the
-    ``response_format`` and the reply is validated against it (one repair attempt, unless
-    ``repair`` is ``False`` — naive baselines make exactly one call).
+    ``response_format`` and the reply is validated against it; an invalid reply is sent back
+    with its validation errors up to ``max_repairs`` times, unless ``repair`` is ``False`` —
+    naive baselines make exactly one call.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
@@ -125,6 +126,7 @@ class LLMRequest(BaseModel):
     seed: int | None = None
     response_model: type[BaseModel] | None = Field(default=None, exclude=True)
     repair: bool = True
+    max_repairs: int = Field(default=1, ge=1, le=2)
     data_origin: DataOrigin = "user_upload"
     tags: CallTags = CallTags()
     timeout_s: float | None = Field(default=None, gt=0, le=600)
@@ -172,9 +174,11 @@ class LLMResponse(_Accounting):
     text: str
     tokens_in: int | None
     tokens_out: int | None
+    image_tokens_in: int | None = None  # the part of tokens_in spent on images, if reported
     finish_reason: str | None = None
     schema_valid: bool | None
     repaired: bool = False
+    attempts: int = Field(default=1, ge=1)  # provider calls behind this reply (incl. repairs)
 
     def parse[T: BaseModel](self, model: type[T]) -> T:
         """Validate the reply into ``model`` (raises ``ValueError`` when it does not fit)."""
@@ -213,6 +217,7 @@ class LLMCallRecord(BaseModel):
     model: str
     tokens_in: int | None = None
     tokens_out: int | None = None
+    image_tokens_in: int | None = None
     latency_ms: int = Field(ge=0)
     wait_ms: int = Field(default=0, ge=0)
     cache_hit: bool

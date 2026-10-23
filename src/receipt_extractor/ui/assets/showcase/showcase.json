@@ -1,0 +1,791 @@
+{
+ "format_version": 1,
+ "dataset": "naver-clova-ix/cord-v2 (CC-BY-4.0)",
+ "cases": [
+  {
+   "case_id": "validation-0005",
+   "image": "validation-0005.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "LE MINERAL",
+      "qty": "1.00",
+      "unit_price": null,
+      "price": "8000"
+     }
+    ],
+    "subtotal": "7273",
+    "tax": "727",
+    "total": "8000",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [
+        {
+         "name": "LE MINERAL",
+         "qty": null,
+         "unit_price": null,
+         "price": "8000"
+        }
+       ],
+       "subtotal": "7273",
+       "tax": "727",
+       "total": "8000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": false,
+      "needs_review": true,
+      "reconcile_diff": "727",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 81,
+      "ocr_lines": 6,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 846,
+       "prepare": null,
+       "llm": 1,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1068,
+      "tokens_out": 2723,
+      "list_cost_usd": "0.00089700",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "LE MINERAL | B.000\n1.00\nNETI AMT | 7,273\nTAX ANT | 727\nTOTAL | 8,000\nCASH | 8:000"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "LE MINERAL",
+         "qty": "1.00",
+         "unit_price": null,
+         "price": "8000"
+        }
+       ],
+       "subtotal": "7273",
+       "tax": "727",
+       "total": "8000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": false,
+      "needs_review": true,
+      "reconcile_diff": "727",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 960,
+      "image_height": 1280,
+      "image_tokens_in": 1064,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 79,
+       "llm": 32,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1584,
+      "tokens_out": 102,
+      "list_cost_usd": "0.00073020",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  },
+  {
+   "case_id": "validation-0033",
+   "image": "validation-0033.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "GRAINS PAN BREAD",
+      "qty": "1",
+      "unit_price": null,
+      "price": "20500"
+     },
+     {
+      "name": "ICED HIBISCUS LYCHEE TEA",
+      "qty": "1",
+      "unit_price": null,
+      "price": "37000"
+     }
+    ],
+    "subtotal": null,
+    "tax": null,
+    "total": "57500",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [
+        {
+         "name": "GRAINS PAN BREAD",
+         "qty": "1",
+         "unit_price": null,
+         "price": "20500"
+        },
+        {
+         "name": "ICED HIBISCUS LYCHEE TEA",
+         "qty": "1",
+         "unit_price": null,
+         "price": "37000"
+        }
+       ],
+       "subtotal": null,
+       "tax": null,
+       "total": "57500",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 131,
+      "ocr_lines": 7,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 1651,
+       "prepare": null,
+       "llm": 2,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1090,
+      "tokens_out": 681,
+      "list_cost_usd": "0.00028605",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "1 GRAINS PAN BREAD | 20,500\n1 ICED HIBISCUS LYCHEE TEA | 37,000\nTOTAL | 57,500\nGIFT50 | 50,000\n811923270311\nCASH | 7,500\nCHANGE | 0"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "GRAINS PAN BREAD",
+         "qty": "1",
+         "unit_price": null,
+         "price": "20500"
+        },
+        {
+         "name": "ICED HIBISCUS LYCHEE TEA",
+         "qty": "1",
+         "unit_price": null,
+         "price": "37000"
+        }
+       ],
+       "subtotal": null,
+       "tax": null,
+       "total": "57500",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 576,
+      "image_height": 864,
+      "image_tokens_in": 1080,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 16,
+       "llm": 15,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1600,
+      "tokens_out": 147,
+      "list_cost_usd": "0.00084750",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  },
+  {
+   "case_id": "validation-0038",
+   "image": "validation-0038.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "TT",
+      "qty": "1",
+      "unit_price": "20000",
+      "price": "20000"
+     }
+    ],
+    "subtotal": null,
+    "tax": null,
+    "total": "20000",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [],
+       "subtotal": null,
+       "tax": "20000",
+       "total": "20000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 66,
+      "ocr_lines": 5,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 615,
+       "prepare": null,
+       "llm": 2,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1056,
+      "tokens_out": 483,
+      "list_cost_usd": "0.00022410",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "820.000\nTT | 20,000\nTOTAL | 20000\nCASH | .100,000\nCHANGE | .80,000"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "3",
+         "qty": "1",
+         "unit_price": "20000",
+         "price": "20000"
+        }
+       ],
+       "subtotal": null,
+       "tax": null,
+       "total": "20000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 864,
+      "image_height": 1536,
+      "image_tokens_in": 1100,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 222,
+       "llm": 24,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1620,
+      "tokens_out": 84,
+      "list_cost_usd": "0.00069600",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  },
+  {
+   "case_id": "validation-0049",
+   "image": "validation-0049.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "Nasi CampurBali",
+      "qty": "1",
+      "unit_price": "52000",
+      "price": "52000"
+     },
+     {
+      "name": "Lemon",
+      "qty": "1",
+      "unit_price": "22000",
+      "price": "22000"
+     }
+    ],
+    "subtotal": "74000",
+    "tax": "7400",
+    "total": "81400",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [
+        {
+         "name": "Nasi CampurBali",
+         "qty": "1",
+         "unit_price": "52000",
+         "price": "52000"
+        },
+        {
+         "name": "Lemon",
+         "qty": "1",
+         "unit_price": "22000",
+         "price": "22000"
+        }
+       ],
+       "subtotal": "74000",
+       "tax": "7400",
+       "total": "81400",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 99,
+      "ocr_lines": 7,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 691,
+       "prepare": null,
+       "llm": 1,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1080,
+      "tokens_out": 855,
+      "list_cost_usd": "0.00033750",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "1×52.000 | 52.000\nNasi CampurBali\n1×22.000 | 22.000\nLemon\nSubTTL | 74.000\nTAX | 7.400\nCASH | 81.400"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "Nasi Campur Bali",
+         "qty": "1",
+         "unit_price": "52000",
+         "price": "52000"
+        },
+        {
+         "name": "Lemon",
+         "qty": "1",
+         "unit_price": "22000",
+         "price": "22000"
+        }
+       ],
+       "subtotal": "74000",
+       "tax": "7400",
+       "total": "81400",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 1108,
+      "image_height": 1478,
+      "image_tokens_in": 1064,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 37,
+       "llm": 16,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1584,
+      "tokens_out": 164,
+      "list_cost_usd": "0.00088520",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  },
+  {
+   "case_id": "validation-0051",
+   "image": "validation-0051.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "Round Wagyu (1gr)",
+      "qty": "118",
+      "unit_price": null,
+      "price": "47200"
+     },
+     {
+      "name": "Wagyu Rice Box",
+      "qty": "1",
+      "unit_price": null,
+      "price": "10000"
+     }
+    ],
+    "subtotal": "57200",
+    "tax": null,
+    "total": "57200",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [
+        {
+         "name": "118 Round Wagyu (1gr)",
+         "qty": null,
+         "unit_price": null,
+         "price": "47200"
+        },
+        {
+         "name": "1 Wagyu Rice Box",
+         "qty": null,
+         "unit_price": null,
+         "price": "10000"
+        }
+       ],
+       "subtotal": "57200",
+       "tax": null,
+       "total": "57200",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 102,
+      "ocr_lines": 5,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 657,
+       "prepare": null,
+       "llm": 1,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1071,
+      "tokens_out": 426,
+      "list_cost_usd": "0.00020813",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "118 Round Wagyu (1gr) | 47.200\n1 Wagyu Rice Box | 10.000\nSubtotal | 57.200\nTOTAL | 57.200\nBCA | 57.200"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "118 Round Wagyu (1gr)",
+         "qty": "118",
+         "unit_price": null,
+         "price": "47200"
+        },
+        {
+         "name": "Wagyu Rice Box",
+         "qty": "1",
+         "unit_price": null,
+         "price": "10000"
+        }
+       ],
+       "subtotal": "57200",
+       "tax": null,
+       "total": "57200",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 960,
+      "image_height": 1280,
+      "image_tokens_in": 1064,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 26,
+       "llm": 15,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1584,
+      "tokens_out": 154,
+      "list_cost_usd": "0.00086020",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  },
+  {
+   "case_id": "validation-0053",
+   "image": "validation-0053.jpg",
+   "gold": {
+    "items": [
+     {
+      "name": "Large 1",
+      "qty": "1",
+      "unit_price": null,
+      "price": "11000"
+     },
+     {
+      "name": "*Rhum",
+      "qty": "1",
+      "unit_price": null,
+      "price": "0"
+     },
+     {
+      "name": "Pastry Keju",
+      "qty": "1",
+      "unit_price": null,
+      "price": "20000"
+     },
+     {
+      "name": "*Plastik kcl",
+      "qty": "1",
+      "unit_price": null,
+      "price": "0"
+     }
+    ],
+    "subtotal": null,
+    "tax": null,
+    "total": "31000",
+    "currency": "IDR"
+   },
+   "variants": {
+    "A": {
+     "run_id": "A-24c9db2a7d6d",
+     "prediction": {
+      "pipeline": "A",
+      "receipt": {
+       "items": [
+        {
+         "name": "Large 1",
+         "qty": "1",
+         "unit_price": null,
+         "price": "11000"
+        },
+        {
+         "name": "*Rhum",
+         "qty": "1",
+         "unit_price": null,
+         "price": "0"
+        },
+        {
+         "name": "Pastry Keju",
+         "qty": null,
+         "unit_price": null,
+         "price": "20000"
+        },
+        {
+         "name": "*Plastik kcl",
+         "qty": "1",
+         "unit_price": null,
+         "price": "0"
+        }
+       ],
+       "subtotal": null,
+       "tax": null,
+       "total": "31000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "groq-oss-20b",
+      "prompt_version": "a-v3",
+      "ocr_text_chars": 118,
+      "ocr_lines": 7,
+      "ocr_truncated": false,
+      "image_width": null,
+      "image_height": null,
+      "image_tokens_in": null,
+      "stage_latency_ms": {
+       "ocr": 621,
+       "prepare": null,
+       "llm": 2,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1087,
+      "tokens_out": 1657,
+      "list_cost_usd": "0.00057863",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": "1 Large 1 | 11.000\n1 *Rhum | 0\nPastry Keju | 20.000\n1 *Plastik kcl | 0\n4 Total | 31.000\nBayar | 40.000\nKembali | 9.000"
+    },
+    "B": {
+     "run_id": "B-8ddf1a98d199",
+     "prediction": {
+      "pipeline": "B",
+      "receipt": {
+       "items": [
+        {
+         "name": "Large 1",
+         "qty": "1",
+         "unit_price": null,
+         "price": "11000"
+        },
+        {
+         "name": "*Rhum",
+         "qty": "1",
+         "unit_price": null,
+         "price": "0"
+        },
+        {
+         "name": "Pastry Keju",
+         "qty": "1",
+         "unit_price": null,
+         "price": "20000"
+        },
+        {
+         "name": "*Plastik Kcl",
+         "qty": "1",
+         "unit_price": null,
+         "price": "0"
+        }
+       ],
+       "subtotal": null,
+       "tax": null,
+       "total": "31000",
+       "currency": "IDR"
+      },
+      "schema_valid": true,
+      "attempts": 1,
+      "reconciled": true,
+      "needs_review": false,
+      "reconcile_diff": "0",
+      "failure": null,
+      "model_alias": "gemini-flash-lite",
+      "prompt_version": "b-v1",
+      "ocr_text_chars": null,
+      "ocr_lines": null,
+      "ocr_truncated": false,
+      "image_width": 576,
+      "image_height": 864,
+      "image_tokens_in": 1080,
+      "stage_latency_ms": {
+       "ocr": null,
+       "prepare": 13,
+       "llm": 11,
+       "llm_wait": 0,
+       "validate": 0
+      },
+      "tokens_in": 1600,
+      "tokens_out": 220,
+      "list_cost_usd": "0.00103000",
+      "cache_hit": true,
+      "raw_text": null
+     },
+     "ocr_text": null
+    }
+   }
+  }
+ ]
+}

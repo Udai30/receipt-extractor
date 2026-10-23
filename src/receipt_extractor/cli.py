@@ -32,6 +32,8 @@ report_app = typer.Typer(help="Render leaderboards and failure reports.", no_arg
 app.add_typer(data_app, name="data")
 app.add_typer(eval_app, name="eval")
 app.add_typer(report_app, name="report")
+ui_app = typer.Typer(help="Demo app assets (Gradio Space).", no_args_is_help=True)
+app.add_typer(ui_app, name="ui")
 
 llm_app = typer.Typer(
     help="Call configured models through the LLM provider layer.", no_args_is_help=True
@@ -332,6 +334,31 @@ def report_failures(
     typer.echo(
         f"{count} failure(s) exported to {path.relative_to(Path.cwd().resolve()).as_posix()}"
     )
+
+
+@ui_app.command("build-showcase")
+def ui_build_showcase(
+    case_id: Annotated[
+        list[str] | None,
+        typer.Option("--case-id", help="Validation receipt to include (repeatable)."),
+    ] = None,
+) -> None:
+    """Bundle sample receipts with their stored A/B results for the demo's Try it tab."""
+    from receipt_extractor.ui.showcase import (  # noqa: PLC0415
+        DEFAULT_SAMPLE_IDS,
+        SHOWCASE_DIR,
+        build_showcase,
+    )
+
+    try:
+        showcase = build_showcase(Path.cwd(), case_ids=case_id or DEFAULT_SAMPLE_IDS)
+    except (OSError, ValueError, KeyError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    for case in showcase.cases:
+        runs = ", ".join(f"{v}={r.run_id}" for v, r in case.variants.items())
+        typer.echo(f"{case.case_id}: {runs}")
+    typer.echo(f"wrote {len(showcase.cases)} sample(s) to {SHOWCASE_DIR}")
 
 
 def _version_callback(value: bool) -> None:

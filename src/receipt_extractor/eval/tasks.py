@@ -56,6 +56,12 @@ class CaseOutput(BaseModel):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     list_cost_usd: Decimal = Field(default=Decimal(0), ge=0)
+    wait_ms: int = Field(
+        default=0,
+        ge=0,
+        description="Time the case spent queued for free-tier pacing (budget, rate limiter, "
+        "concurrency slot); reported apart from latency (TRD §S5)",
+    )
 
 
 class CaseTask(Protocol):

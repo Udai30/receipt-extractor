@@ -4,9 +4,10 @@ Two modes, same prompt and model, so the difference is the validation machinery 
 
 - ``naive`` (variant ``A-naive``, the baseline): exactly one structured-output call; a reply
   that does not validate is the answer (``receipt = None``). No repair, no checks.
-- ``engineered`` (variant ``A``): the LLM layer's repair — on a schema failure the validation
-  errors are sent back once (TRD §S3). M2.2 adds a second retry, arithmetic reconciliation
-  and ``needs_review`` here.
+- ``engineered`` (variant ``A``): on a schema failure the validation errors are sent back up
+  to ``max_repairs`` (default 2) times (TRD §4.3, §S3); a valid receipt is then checked
+  arithmetically (``reconciled``, ``reconcile_diff``) and anything invalid or not adding up is
+  flagged ``needs_review`` (M2.2). Naive leaves all three ``None``.
 
 The image is processed in memory; nothing here logs or stores image or text content.
 """
@@ -14,34 +15,33 @@ The image is processed in memory; nothing here logs or stores image or text cont
 from __future__ import annotations
 
 import asyncio
-import time
 from decimal import Decimal
 from typing import Final, Literal
 
-from receipt_extractor.core.extraction import (
-    MAX_RAW_TEXT_CHARS,
-    ExtractionResult,
-    FailureKind,
-    StageLatency,
-)
+from receipt_extractor.core.extraction import ExtractionResult, FailureKind, StageLatency
 from receipt_extractor.core.receipt import Receipt
+from receipt_extractor.core.reconcile import REL_TOLERANCE
 from receipt_extractor.llm import CallTags, LLMClient, LLMRequest
 from receipt_extractor.llm.types import DataOrigin
 from receipt_extractor.pipelines.ocr import OcrResult, OcrStage
 from receipt_extractor.pipelines.prompts import DEFAULT_PROMPT_VERSION, PROMPTS, build_messages
+from receipt_extractor.pipelines.replies import Review, parse_receipt_reply, review
 
-__all__ = ["DEFAULT_MAX_TOKENS", "DEFAULT_MODEL_ALIAS", "Mode", "PipelineA"]
+__all__ = [
+    "DEFAULT_MAX_REPAIRS",
+    "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MODEL_ALIAS",
+    "Mode",
+    "PipelineA",
+]
 
 Mode = Literal["naive", "engineered"]
 
 DEFAULT_MODEL_ALIAS: Final = "groq-oss-20b"
 # gpt-oss is a reasoning model: max_tokens covers its reasoning as well as the JSON.
 DEFAULT_MAX_TOKENS: Final = 4096
+DEFAULT_MAX_REPAIRS: Final = 2  # FR-5 / TRD §4.3: re-ask with the errors at most twice
 _VARIANT: Final[dict[Mode, str]] = {"naive": "A-naive", "engineered": "A"}
-
-
-def _elapsed_ms(start: float) -> int:
-    return max(0, round((time.perf_counter() - start) * 1000))
 
 
 class PipelineA:
@@ -55,6 +55,8 @@ class PipelineA:
         prompt_version: str = DEFAULT_PROMPT_VERSION,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         seed: int | None = None,
+        max_repairs: int = DEFAULT_MAX_REPAIRS,
+        reconcile_tolerance: Decimal = REL_TOLERANCE,
     ) -> None:
         if prompt_version not in PROMPTS:
             raise ValueError(f"unknown prompt version {prompt_version!r}")
@@ -65,6 +67,8 @@ class PipelineA:
         self.prompt_version = prompt_version
         self.max_tokens = max_tokens
         self.seed = seed
+        self.max_repairs = max_repairs
+        self.reconcile_tolerance = reconcile_tolerance
 
     @property
     def name(self) -> str:
@@ -83,6 +87,7 @@ class PipelineA:
                 attempts=0,
                 failure="ocr_empty",
                 stage_latency_ms=StageLatency(ocr=ocr.latency_ms),
+                checked=self._review(None),
             )
 
         messages, truncated = build_messages(self.prompt_version, ocr.text)
@@ -95,40 +100,37 @@ class PipelineA:
                 seed=self.seed,
                 response_model=Receipt,
                 repair=self.mode == "engineered",
+                max_repairs=self.max_repairs,
                 data_origin=origin,
                 tags=tags.model_copy(update={"stage": "llm"}),
             )
         )
 
-        start = time.perf_counter()
-        receipt: Receipt | None
-        try:
-            receipt = response.parse(Receipt)
-        except ValueError:
-            receipt = None
-        validate_ms = _elapsed_ms(start)
-
-        failure: FailureKind | None = None
-        if receipt is None:
-            failure = "truncated" if response.finish_reason == "length" else "schema_invalid"
+        parsed = parse_receipt_reply(response)
         return self._result(
             ocr,
-            receipt=receipt,
-            attempts=2 if response.repaired else 1,
-            failure=failure,
+            receipt=parsed.receipt,
+            attempts=response.attempts,
+            failure=parsed.failure,
+            checked=self._review(parsed.receipt),
             ocr_truncated=truncated,
             stage_latency_ms=StageLatency(
                 ocr=ocr.latency_ms,
                 llm=response.latency_ms,
                 llm_wait=response.wait_ms,
-                validate_=validate_ms,
+                validate_=parsed.validate_ms,
             ),
             tokens_in=response.tokens_in or 0,
             tokens_out=response.tokens_out or 0,
             list_cost_usd=response.list_cost_usd or Decimal(0),
             cache_hit=response.cache_hit,
-            raw_text=None if receipt is not None else response.text[:MAX_RAW_TEXT_CHARS],
+            raw_text=parsed.raw_text,
         )
+
+    def _review(self, receipt: Receipt | None) -> Review | None:
+        if self.mode == "naive":
+            return None  # the baseline has no checks
+        return review(receipt, rel_tolerance=self.reconcile_tolerance)
 
     def _result(
         self,
@@ -137,6 +139,7 @@ class PipelineA:
         receipt: Receipt | None,
         attempts: int,
         failure: FailureKind | None,
+        checked: Review | None,
         stage_latency_ms: StageLatency,
         ocr_truncated: bool = False,
         tokens_in: int = 0,
@@ -150,6 +153,9 @@ class PipelineA:
             receipt=receipt,
             schema_valid=receipt is not None,
             attempts=attempts,
+            reconciled=checked.reconciled if checked else None,
+            needs_review=checked.needs_review if checked else None,
+            reconcile_diff=checked.reconcile_diff if checked else None,
             failure=failure,
             model_alias=self.model_alias,
             prompt_version=self.prompt_version,

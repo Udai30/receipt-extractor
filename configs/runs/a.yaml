@@ -1,0 +1,42 @@
+# M2.3 benchmark — Pipeline A, engineered: RapidOCR → groq-oss-20b, up to 2 re-asks with the
+# validation errors, arithmetic check and needs_review (M2.2). All 100 CORD test receipts; same
+# prompt, model and OCR settings as a-naive.yaml, so the difference is the validation machinery.
+# Groq free plan: see a-naive.yaml; first replies identical to a cached request are not re-sent.
+#   uv run receipt_extractor eval run --config configs/runs/a.yaml
+variant: A
+task: pipeline_a
+params:
+  mode: engineered
+  model: groq-oss-20b
+  prompt_version: a-v3
+  max_tokens: 4096
+  max_repairs: 2
+  reconcile_tolerance: "0.005"
+  ocr:
+    det_max_side: 960
+    use_angle_cls: false
+    threads: 4
+    min_text_score: 0.5
+dataset:
+  kind: cord
+  split: test
+sample:
+  seed: 0                  # no ids/size: all 100 test receipts
+models:
+  - groq-oss-20b
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 2

@@ -1,8 +1,9 @@
 """Pipeline A's OCR stage: RapidOCR (ONNX Runtime, CPU) → layout-ordered text (TRD §3, §6).
 
 - **Input.** Image bytes are untrusted: size, format (PNG/JPEG/WebP magic) and dimensions are
-  checked *before* decoding, so a decompression bomb is rejected from its header. Images are
-  decoded in memory and never written anywhere.
+  checked *before* decoding (:mod:`receipt_extractor.pipelines.images`, shared with pipeline B),
+  so a decompression bomb is rejected from its header. Images are decoded in memory and never
+  written anywhere.
 - **Models.** Only the ONNX models shipped inside the ``rapidocr`` wheel are used, passed by
   explicit path, so RapidOCR's own download branch can never run (CLAUDE.md §3). The engine is
   built lazily on first use, never at import time.
@@ -16,11 +17,9 @@
 
 from __future__ import annotations
 
-import io
 import logging
 import threading
 import time
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +27,14 @@ from statistics import median
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from receipt_extractor.pipelines.images import (
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_PIXELS,
+    MAX_IMAGE_SIDE,
+    ImageRejectedError,
+    load_upright_rgb,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -53,25 +60,14 @@ __all__ = [
 ]
 
 OCR_BUDGET_MS: Final = 2000  # TRD §6: RapidOCR per receipt on the laptop CPU
-MAX_IMAGE_BYTES: Final = 32 * 1024 * 1024
-MAX_IMAGE_SIDE: Final = 8192
-MAX_IMAGE_PIXELS: Final = 40_000_000
 LINE_SEPARATOR: Final = " | "
 # Shipped in the rapidocr wheel (3.x); checked on engine start.
 _DET_MODEL: Final = "PP-OCRv6_det_small.onnx"
 _REC_MODEL: Final = "PP-OCRv6_rec_small.onnx"
-_MAGIC: Final = (
-    (b"\x89PNG\r\n\x1a\n", "PNG"),
-    (b"\xff\xd8\xff", "JPEG"),
-)
 
 
 class OcrError(RuntimeError):
     """The OCR engine could not be started or failed on an image."""
-
-
-class ImageRejectedError(ValueError):
-    """The image is too large, not a supported format, or cannot be decoded."""
 
 
 class OcrSettings(BaseModel):
@@ -128,42 +124,11 @@ class OcrEngine(Protocol):
     def read(self, image: npt.NDArray[np.uint8]) -> list[OcrBox]: ...
 
 
-def _sniff_format(data: bytes) -> str:
-    for magic, name in _MAGIC:
-        if data.startswith(magic):
-            return name
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "WEBP"
-    raise ImageRejectedError("unsupported image format (PNG, JPEG or WebP expected)")
-
-
 def decode_image(data: bytes) -> npt.NDArray[np.uint8]:
     """Validate and decode ``data`` into an upright BGR ``uint8`` array (in memory only)."""
     import numpy as np  # noqa: PLC0415 - heavy imports stay out of module import
-    from PIL import Image, ImageOps  # noqa: PLC0415
 
-    if not data:
-        raise ImageRejectedError("empty image")
-    if len(data) > MAX_IMAGE_BYTES:
-        raise ImageRejectedError(f"image larger than {MAX_IMAGE_BYTES // (1024 * 1024)} MB")
-    expected = _sniff_format(data)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(data), formats=[expected]) as image:
-                width, height = image.size  # header only; nothing decoded yet
-                if max(width, height) > MAX_IMAGE_SIDE or width * height > MAX_IMAGE_PIXELS:
-                    raise ImageRejectedError(
-                        f"image dimensions {width}x{height} exceed the limit "
-                        f"({MAX_IMAGE_SIDE} px per side, {MAX_IMAGE_PIXELS:,} px)"
-                    )
-                upright = ImageOps.exif_transpose(image).convert("RGB")
-    except ImageRejectedError:
-        raise
-    except (OSError, ValueError, Image.DecompressionBombError, Warning):
-        # Never echo decoder messages: they can quote file content.
-        raise ImageRejectedError("image could not be decoded") from None
-    rgb = np.asarray(upright, dtype=np.uint8)
+    rgb = np.asarray(load_upright_rgb(data), dtype=np.uint8)
     return np.ascontiguousarray(rgb[:, :, ::-1])
 
 

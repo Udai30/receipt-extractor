@@ -1,0 +1,46 @@
+# Local vision LLM: CORD image → Qwen3-VL-4B-Instruct (Q4_K_M) on the laptop CPU via Ollama →
+# Receipt, with one schema repair — same code path as pipeline B, reported as variant C-local.
+# Same 10 validation ids as a-val10 / b-val10 (same dataset, sample size and seed).
+# Validation only: prompt fixes are judged here, never on test (TRD §5).
+# Needs Ollama running with `qwen3-vl:4b-instruct` pulled. No API key, no rate limits, $0.
+# One receipt at a time (one CPU); the first call also loads the model (~2.5 min).
+#   uv run receipt_extractor eval run --config configs/runs/c-local-val10.yaml
+variant: C-local
+task: pipeline_b
+params:
+  variant: C-local
+  model: ollama-qwen3-vl-4b
+  prompt_version: b-v1
+  max_tokens: 4096
+  timeout_s: 600
+  # M2.2: re-ask with the errors up to twice; arithmetic check at 0.5 % of the total.
+  max_repairs: 2
+  reconcile_tolerance: "0.005"
+  image:
+    max_side: 1024
+    format: jpeg
+    jpeg_quality: 90
+dataset:
+  kind: cord
+  split: validation
+sample:
+  size: 10
+  seed: 0
+models:
+  - ollama-qwen3-vl-4b
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 1

@@ -1,0 +1,46 @@
+# Pipeline B: CORD image → Gemini 3.5 Flash-Lite (vision) → Receipt, with one schema repair (M2.2 adds
+# retries, reconciliation and needs_review) on 10 CORD validation receipts — M2.1 run.
+# Same 10 ids as a-val10 / a-naive-val10 (same dataset, sample size and seed).
+# Validation only: prompt fixes are judged here, never on test (TRD §5).
+# gemini-flash-lite is public_only and B refuses anything but public dataset images (CLAUDE.md §5).
+# Free tier: ~10-20 of the alias's 20 requests/day; the budget tracker pauses a run that would
+# exceed it and `eval run` resumes it the next day. Model calls are cached under .cache/llm/.
+#   uv run receipt_extractor eval run --config configs/runs/b-val10.yaml
+variant: B
+task: pipeline_b
+params:
+  model: gemini-flash-lite
+  prompt_version: b-v1
+  max_tokens: 8192
+  # M2.2: re-ask with the errors up to twice; arithmetic check at 0.5 % of the total.
+  # (The M2.1 acceptance run without these is B-661916019452.)
+  max_repairs: 2
+  reconcile_tolerance: "0.005"
+  image:
+    max_side: 1536
+    format: jpeg
+    jpeg_quality: 90
+dataset:
+  kind: cord
+  split: validation
+sample:
+  size: 10
+  seed: 0
+models:
+  - gemini-flash-lite
+metrics:
+  - field_f1
+  - items_precision
+  - items_recall
+  - items_f1
+  - subtotal_f1
+  - tax_f1
+  - total_f1
+  - valid_json
+  - reconcile
+primary_metric: field_f1
+seed: 0
+bootstrap:
+  resamples: 1000
+  confidence: 0.95
+concurrency: 1

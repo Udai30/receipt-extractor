@@ -12,7 +12,7 @@ Project documentation: **PRD.md** · [TRD.md](TRD.md) · [APPFLOW.md](APPFLOW.md
 | Target role signal | AI/GenAI Engineer · document AI · structured outputs · evaluation |
 | Effort | ≈ 3.75 focused days (sum of task estimates; the ideas doc says 2–3 days) |
 | Public artefact | Hugging Face Space (upload a receipt, see both pipelines side by side) |
-| Interface | Gradio 5 → Hugging Face Space |
+| Interface | Gradio 6 → Hugging Face Space |
 | Status | Specification v2 (lean) · 2026-10-22 |
 
 ---
@@ -72,12 +72,12 @@ comparing (one function, tested). Facts carried from the ideas doc (2026-10-22);
 | FR-1 | `cli data prepare` downloads CORD-v2 (revision pinned) and normalises ground truth into `Receipt`. |
 | FR-2 | One Pydantic `Receipt` schema: `items[name, qty, unit_price, price]`, `subtotal`, `tax`, `total` (Decimal). |
 | FR-3 | Pipeline A: RapidOCR text → Groq `gpt-oss-20b` → `Receipt`. Naive mode (no retries/checks) is kept as the baseline. |
-| FR-4 | Pipeline B: image → Gemini Flash → `Receipt` (CORD images only — never user uploads). |
+| FR-4 | Pipeline B: image → Gemini 3.5 Flash-Lite (`gemini-flash-lite`) → `Receipt` (CORD images only — never user uploads). |
 | FR-5 | Retry on schema failure (≤ 2 tries) with the validation error sent back; arithmetic check; `needs_review` flag. |
 | FR-6 | Every model response cached to disk so re-running the eval costs nothing. |
 | FR-7 | Scorer with order-insensitive line-item matching; failure export; 20–30 failures grouped by cause. |
 | FR-8 | Gradio Space: Results tab, Try it (upload → A; sample receipts → A and B side by side), Failures tab. |
-| FR-9 (stretch) | Pipeline C: Qwen2.5-VL-3B on Kaggle, predictions imported into the same table. |
+| FR-9 (stretch) | Pipeline C: Qwen2.5-VL-3B on Kaggle, predictions imported into the same table. Also `C-local` (added 2026-10-22 on request): Qwen3-VL-4B-Instruct on the local CPU via Ollama, same table. |
 
 ## 7. Acceptance criteria (project level)
 

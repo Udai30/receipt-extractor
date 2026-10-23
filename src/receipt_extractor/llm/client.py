@@ -132,6 +132,8 @@ class _CachedChat(BaseModel):
     finish_reason: str | None
     schema_valid: bool | None
     repaired: bool
+    image_tokens_in: int | None = None  # absent from entries written before M2.1
+    attempts: int | None = Field(default=None, ge=1)  # absent from entries before M2.2
 
 
 class _CachedEmbed(BaseModel):
@@ -162,8 +164,10 @@ def _add_cost(a: Decimal | None, b: Decimal | None) -> Decimal | None:
     return None if a is None and b is None else (a or Decimal(0)) + (b or Decimal(0))
 
 
-def _repair_stage(stage: str | None) -> str:
-    return (f"{stage}:repair" if stage else "repair")[:MAX_STAGE_CHARS]
+def _repair_stage(stage: str | None, attempt: int = 1) -> str:
+    # The first repair keeps its pre-M2.2 name ("llm:repair"); later ones are numbered.
+    name = "repair" if attempt == 1 else f"repair{attempt}"
+    return (f"{stage}:{name}" if stage else name)[:MAX_STAGE_CHARS]
 
 
 def validation_problems(model: type[BaseModel], text: str) -> str | None:
@@ -244,8 +248,11 @@ class LLMClient:
             if schema is not None and not request.repair:
                 # Only when it changes the outcome, so existing cache keys stay valid.
                 payload["repair"] = False
+            if spec.options:
+                payload["options"] = dict(sorted(spec.options.items()))
             key = cache_key(payload)
-            cached = await self._cached_chat(key, spec, request.tags)
+            allowed = request.max_repairs if schema is not None and request.repair else 0
+            cached = await self._cached_chat(key, spec, request.tags, repairs_allowed=allowed)
             if cached is not None:
                 return cached
 
@@ -263,6 +270,7 @@ class LLMClient:
             schema_name=request.response_model.__name__ if request.response_model else "response",
             api_key=api_key,
             api_base=api_base,
+            options=dict(spec.options),
         )
         estimate = self._estimate_chat(request)
         stage = request.tags.stage
@@ -293,43 +301,69 @@ class LLMClient:
             await self._store_chat(key, response)
             return response
 
-        # One repair attempt with the validation problems appended (APPFLOW §S2).
         first_record = await self._emit_chat(spec, request.tags, stage, first, schema_valid=False)
-        repair_call = replace(
-            call,
-            messages=[
-                *messages,
-                {"role": "assistant", "content": first.result.text or "(empty reply)"},
-                {"role": "user", "content": REPAIR_PROMPT.format(errors=problems)},
-            ],
-        )
-        try:
-            second = await self._run(
-                spec,
-                lambda: self._provider.complete(repair_call),
-                estimate=estimate,
-                tokens_used=_chat_tokens,
-                timeout_s=timeout_s,
-                tags=request.tags,
-                stage=_repair_stage(stage),
-            )
-        except LLMError as exc:
-            # The repair itself failed (already recorded); return the invalid first reply
-            # uncached so a later rerun can try again.
-            logger.warning("repair call for '%s' failed: %s", spec.alias, type(exc).__name__)
-            return self._chat_response(
-                spec, [(first, first_record)], schema_valid=False, repaired=False
-            )
-        valid = validation_problems(request.response_model, second.result.text) is None
-        second_record = await self._emit_chat(
-            spec, request.tags, _repair_stage(stage), second, schema_valid=valid
-        )
-        response = self._chat_response(
+        return await self._repair(
             spec,
-            [(first, first_record), (second, second_record)],
-            schema_valid=valid,
-            repaired=True,
+            request,
+            call,
+            [(first, first_record)],
+            problems,
+            key=key,
+            estimate=estimate,
+            timeout_s=timeout_s,
         )
+
+    async def _repair(
+        self,
+        spec: ModelSpec,
+        request: LLMRequest,
+        call: ChatCall,
+        parts: list[tuple[_Outcome[ChatResult], LLMCallRecord]],
+        problems: str,
+        *,
+        key: str | None,
+        estimate: int,
+        timeout_s: float,
+    ) -> LLMResponse:
+        """Up to ``request.max_repairs`` repair calls after an invalid first reply.
+
+        Each repair appends the previous reply and its validation problems to the conversation
+        so far (APPFLOW §S2). A repair *call* that fails returns the last invalid reply uncached,
+        so a later rerun can try again.
+        """
+        assert request.response_model is not None  # noqa: S101 - guarded by caller
+        conversation = list(call.messages)
+        reply_text = parts[-1][0].result.text
+        current: str | None = problems
+        for attempt in range(1, request.max_repairs + 1):
+            conversation += [
+                {"role": "assistant", "content": reply_text or "(empty reply)"},
+                {"role": "user", "content": REPAIR_PROMPT.format(errors=current)},
+            ]
+            repair_call = replace(call, messages=list(conversation))
+            stage = _repair_stage(request.tags.stage, attempt)
+            try:
+                outcome = await self._run(
+                    spec,
+                    lambda c=repair_call: self._provider.complete(c),  # type: ignore[misc]
+                    estimate=estimate,
+                    tokens_used=_chat_tokens,
+                    timeout_s=timeout_s,
+                    tags=request.tags,
+                    stage=stage,
+                )
+            except LLMError as exc:
+                logger.warning("repair call for '%s' failed: %s", spec.alias, type(exc).__name__)
+                return self._chat_response(spec, parts, schema_valid=False, repaired=len(parts) > 1)
+            reply_text = outcome.result.text
+            current = validation_problems(request.response_model, reply_text)
+            record = await self._emit_chat(
+                spec, request.tags, stage, outcome, schema_valid=current is None
+            )
+            parts.append((outcome, record))
+            if current is None:
+                break
+        response = self._chat_response(spec, parts, schema_valid=current is None, repaired=True)
         await self._store_chat(key, response)
         return response
 
@@ -514,7 +548,16 @@ class LLMClient:
 
     # --- cache ------------------------------------------------------------------------
 
-    async def _cached_chat(self, key: str, spec: ModelSpec, tags: CallTags) -> LLMResponse | None:
+    async def _cached_chat(
+        self, key: str, spec: ModelSpec, tags: CallTags, *, repairs_allowed: int = 0
+    ) -> LLMResponse | None:
+        """The cached response for ``key``, if it is what this request would produce.
+
+        ``max_repairs`` is not part of the key (so raising it re-sends nothing that was valid),
+        so an entry is reused only when consistent with the request's repair budget: a valid
+        reply that needed no more repairs than allowed, or an invalid one that used exactly the
+        allowed repairs. Anything else is a miss, and the new result replaces the entry.
+        """
         assert self._cache is not None  # noqa: S101 - guarded by caller
         start = time.perf_counter()
         raw = await self._cache.get(key)
@@ -525,6 +568,14 @@ class LLMClient:
         except ValidationError:
             logger.warning("llm cache entry has an unexpected shape; ignoring it")
             return None
+        attempts = entry.attempts or (2 if entry.repaired else 1)
+        repairs_used = attempts - 1
+        if entry.schema_valid is False:
+            usable = repairs_used == repairs_allowed
+        else:
+            usable = repairs_used <= repairs_allowed or entry.schema_valid is None
+        if not usable:
+            return None
         cost = self._cost(spec, entry.tokens_in, entry.tokens_out)
         latency = _elapsed_ms(start)
         record = await self._emit(
@@ -533,6 +584,7 @@ class LLMClient:
             tags.stage,
             tokens_in=entry.tokens_in,
             tokens_out=entry.tokens_out,
+            image_tokens_in=entry.image_tokens_in,
             latency_ms=latency,
             cache_hit=True,
             retries=0,
@@ -546,12 +598,14 @@ class LLMClient:
             text=entry.text,
             tokens_in=entry.tokens_in,
             tokens_out=entry.tokens_out,
+            image_tokens_in=entry.image_tokens_in,
             finish_reason=entry.finish_reason,
             latency_ms=latency,
             cache_hit=True,
             retries=0,
             schema_valid=entry.schema_valid,
             repaired=entry.repaired,
+            attempts=attempts,
             list_cost_usd=cost,
             actual_cost_usd=FREE_TIER_COST,
             call_ids=(record.id,),
@@ -609,6 +663,8 @@ class LLMClient:
                 finish_reason=response.finish_reason,
                 schema_valid=response.schema_valid,
                 repaired=response.repaired,
+                image_tokens_in=response.image_tokens_in,
+                attempts=response.attempts,
             ).model_dump(),
         )
 
@@ -630,6 +686,7 @@ class LLMClient:
             stage,
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
+            image_tokens_in=result.image_tokens_in,
             latency_ms=outcome.latency_ms,
             wait_ms=outcome.wait_ms,
             cache_hit=False,
@@ -650,6 +707,7 @@ class LLMClient:
         wait_ms: int = 0,
         tokens_in: int | None = None,
         tokens_out: int | None = None,
+        image_tokens_in: int | None = None,
         schema_valid: bool | None = None,
         list_cost_usd: Decimal | None = None,
         error: str | None = None,
@@ -664,6 +722,7 @@ class LLMClient:
             model=spec.model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
+            image_tokens_in=image_tokens_in,
             latency_ms=latency_ms,
             wait_ms=wait_ms,
             cache_hit=cache_hit,
@@ -688,10 +747,12 @@ class LLMClient:
         last = parts[-1][0].result
         tokens_in: int | None = None
         tokens_out: int | None = None
+        image_tokens_in: int | None = None
         cost: Decimal | None = None
         for outcome, record in parts:
             tokens_in = _add(tokens_in, outcome.result.tokens_in)
             tokens_out = _add(tokens_out, outcome.result.tokens_out)
+            image_tokens_in = _add(image_tokens_in, outcome.result.image_tokens_in)
             cost = _add_cost(cost, record.list_cost_usd)
         return LLMResponse(
             model_alias=spec.alias,
@@ -700,6 +761,7 @@ class LLMClient:
             text=last.text,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
+            image_tokens_in=image_tokens_in,
             finish_reason=last.finish_reason,
             latency_ms=sum(outcome.latency_ms for outcome, _ in parts),
             wait_ms=sum(outcome.wait_ms for outcome, _ in parts),
@@ -707,6 +769,7 @@ class LLMClient:
             retries=sum(outcome.retries for outcome, _ in parts),
             schema_valid=schema_valid,
             repaired=repaired,
+            attempts=len(parts),
             list_cost_usd=cost,
             actual_cost_usd=FREE_TIER_COST,
             call_ids=tuple(record.id for _, record in parts),

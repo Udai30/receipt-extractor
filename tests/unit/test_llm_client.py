@@ -344,6 +344,21 @@ async def test_repair_call_failure_returns_invalid_first_reply(
     assert again.cache_hit is False and again.schema_valid is True
 
 
+async def test_provider_quota_during_repair_is_raised_not_scored(make_client: Factory) -> None:
+    provider = FakeProvider(
+        [FakeReply(text="{broken"), FakeFailure("rate_limit", retry_after_s=3600.0)]
+    )
+    client = make_client(provider, cache=True)
+
+    with pytest.raises(ProviderQuotaExhaustedError):
+        await client.complete(chat(response_model=Total))
+
+    # Nothing was cached from the unrepaired reply: the next attempt asks again and repairs.
+    provider.push(FakeReply(text="{broken"), FakeReply(text='{"total": "1", "currency": "IDR"}'))
+    again = await client.complete(chat(response_model=Total))
+    assert again.cache_hit is False and again.schema_valid is True and again.repaired is True
+
+
 async def test_no_schema_means_schema_valid_none(make_client: Factory) -> None:
     response = await make_client(FakeProvider()).complete(chat())
     assert response.schema_valid is None

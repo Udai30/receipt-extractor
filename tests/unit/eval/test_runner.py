@@ -11,7 +11,7 @@ import pytest
 
 from receipt_extractor.eval import runner as runner_module
 from receipt_extractor.eval.datasets import Case
-from receipt_extractor.eval.errors import RunLockedError
+from receipt_extractor.eval.errors import RunConfigError, RunLockedError
 from receipt_extractor.eval.records import (
     MANIFEST_FILENAME,
     RESULTS_FILENAME,
@@ -284,3 +284,24 @@ async def test_retry_errors_reruns_only_error_rows_and_last_row_wins(prepare: Pr
     again = AddTask()
     await execute_run(prepared, again, retry_errors=True)
     assert again.calls == []  # nothing left to retry
+
+
+async def test_rerun_case_reruns_named_cases_even_when_they_passed(prepare: Prepare) -> None:
+    prepared = prepare(6)
+    await execute_run(prepared, AddTask())
+
+    rerun = AddTask()
+    outcome = await execute_run(prepared, rerun, rerun_cases=frozenset({"toy-00002", "toy-00005"}))
+    assert sorted(rerun.calls) == ["toy-00002", "toy-00005"]
+    assert len(read_rows(prepared.run_dir)) == 8  # appended, nothing rewritten
+    assert outcome.summary is not None and sum(outcome.summary.status_counts.values()) == 6
+
+    quiet = AddTask()
+    await execute_run(prepared, quiet)
+    assert quiet.calls == []  # without the option a resume leaves them alone
+
+
+async def test_rerun_case_rejects_an_id_outside_the_run(prepare: Prepare) -> None:
+    prepared = prepare(3)
+    with pytest.raises(RunConfigError, match="not in this run: toy-99999"):
+        await execute_run(prepared, AddTask(), rerun_cases=frozenset({"toy-99999"}))

@@ -38,6 +38,49 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 ---
 
+## 2026-10-24 — M2.3 · Pipeline B test run complete (Gemini limits raised by the human)
+
+**Done:**
+- The human read the free-tier limits in AI Studio (chat, 2026-10-24): `gemini-3.5-flash-lite` allows 10 requests/minute and about 250/day. `configs/models.yaml` now has `rpm: 10, rpd: 250` (`limits_checked: 2026-10-24`; `tpm` is still LiteLLM's figure). This replaces the conservative 20/day placeholder.
+- Ping `llm ping --model gemini-flash-lite`: reachable ("pong", 7.7 s, $0).
+- `B-cea8aeff49d5` resumed and **completed: 100/100, 0 errors, 84 pass / 16 fail, field_f1 0.9572 [0.9305, 0.9782]** (68 cases run this session, in one pass). Remaining B metrics, latency and cost: read from `reports/results.csv` after `report build`.
+- LiteLLM warns that `temperature` on Gemini 3+ is planned for removal; it still works. Watch for it on a LiteLLM upgrade.
+
+**Open:**
+- A (`A-e8c045ee22e6`) still has error rows to retry (Groq daily quota); then `report build`.
+- Not committed.
+
+---
+
+## 2026-10-24 — M3.1 (labelling done; fix pending) + M2.3 closed · all three test runs complete
+
+**Done:**
+- **M2.3 acceptance met.** `reports/results.csv|md` has A-naive, A and B on the same 100 test ids (run ids `A-naive-5ed10911e9ae`, `A-e8c045ee22e6`, `B-cea8aeff49d5`). A finished through the 4-minute retry loop (19 cases in one attempt, 0 errors). B reached 100/100 after the human read the real free-tier limits in AI Studio and set `rpd: 250` / `rpm: 10` for `gemini-flash-lite` in `configs/models.yaml` (`limits_checked: 2026-10-24`; the earlier 20/day was a placeholder). A full B re-run therefore fits in one day. Field F1 [95 % CI]: A-naive 0.820 [0.765, 0.870], A 0.827 [0.774, 0.877], B 0.957 [0.931, 0.978]; valid_json 0.94 / 0.95 / 1.00; reconcile 0.59 / 0.63 / 0.85; list cost per 1k $0.352 / $0.359 / $0.975; p50/p95 ms 2,368/8,364 · 7,560/50,029 · 4,142/17,049.
+- **All 103 failures hand-labelled** in `reports/failures.csv` (A-naive 45, A 42, B 16) from gold vs prediction (+ OCR text for A):
+
+  | failure_label | A-naive | A | B |
+  |---|---|---|---|
+  | other | 20 | 18 | 10 |
+  | ocr_misread | 8 | 9 | 0 |
+  | wrong_item_split | 7 | 7 | 0 |
+  | hallucinated_item | 6 | 5 | 6 |
+  | number_format | 4 | 3 | 0 |
+
+  `hallucinated_item` (discount lines, sub-lines, size labels, summary lines read as items) is the only cause present in all three variants (B: 6 of 16). In B, `other` is mostly item codes kept in names (3) and a printed subtotal not extracted (3).
+- **Defect found in A (engineered) and fixed in code; the 5 affected rows are not re-run yet.** In 5 of A's 42 failures (test-0012, -0026, -0061, -0066, -0068) the first reply was invalid, and the repair re-ask was refused by Groq's daily quota. `LLMClient._repair` swallowed that `ProviderQuotaExhaustedError` and returned the invalid first reply, which the run scored as a final answer (`attempts = 1`, `schema_valid = false`) instead of pausing. The repair itself works: test-0095 was repaired when quota allowed (attempts 2, valid). The fix I made after M2.3's quota work: `_repair` now re-raises `BudgetExhaustedError`, so the run pauses and the case is retried later. Test added (`test_provider_quota_during_repair_is_raised_not_scored`); ruff, mypy and the affected test modules pass (302 passed). **A's current numbers are therefore understated for these 5 cases** and the "retries and checks" comparison against A-naive is not yet fair; the same quota issue can apply to A-naive's rows only through the first call, which the runner already pauses on.
+- Order: A-naive labels were written earlier today (partial entry below).
+
+- **`--rerun-case`** (`eval run --rerun-case <id>`, repeatable; appends a new row, last row wins; an id outside the run is rejected): runner `_finished_ids(rerun=)`, `open_session`/`execute_run(rerun_cases=)`, CLI option; 2 tests in `tests/unit/eval/test_runner.py`. Chosen by the human (chat 2026-10-24) as M3.1's one fix: the repair/quota bug fix, no prompt changes. A's "before" numbers (field_f1 0.8274 [0.7741, 0.8768], valid_json 0.95, reconcile 0.63, 5 invalid rows) were saved before the re-run.
+- **Re-run status:** the first attempts at the 5 cases were refused by Groq's rolling daily quota and paused cleanly (no rows written); a retry loop (every 4 min, only cases without a new row) is running. After it finishes: rebuild reports, record before/after for A, update the 5 failure labels, run `report readme`.
+- **README generator** `eval/readme.py` + `report readme`: fills the `<!-- results -->` and `<!-- failures -->` blocks of README.md from `reports/results.csv` (test rows, model from each run's manifest) and `reports/failures.csv` (counts by label and variant); fails if a marker is missing; idempotent. 5 tests in `tests/unit/eval/test_readme.py`. The README currently shows A's pre-fix numbers; rerun `report readme` after the 5 cases are re-run.
+
+**Open:**
+- Re-run those 5 A cases (≈ 10–15K Groq tokens). The runner skips cases that already have a row, so this needs either a small `--rerun-case` option (append-only, last row wins, like `--retry-errors`) or the human's decision to edit the run. Then rebuild `reports/`, and record before/after for A.
+- Choose the one M3.1 fix (human decision; see the chat summary). Anything that changes a prompt means re-running every variant: A-naive and A are limited by Groq's 200K tokens/day (about 2 days for both), B fits in one day at 250 requests/day.
+- Nothing committed since `933c0f9`.
+
+---
+
 ## 2026-10-24 — M3.1 (partial) + MF.1 (drafts) · A-naive failure labels and write-up scaffolding
 
 **Done:**

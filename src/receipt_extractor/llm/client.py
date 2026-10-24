@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from receipt_extractor.llm.cache import DiskCache, cache_key
 from receipt_extractor.llm.errors import (
+    BudgetExhaustedError,
     DataPolicyError,
     LLMError,
     MissingCredentialsError,
@@ -334,7 +335,8 @@ class LLMClient:
 
         Each repair appends the previous reply and its validation problems to the conversation
         so far (APPFLOW §S2). A repair *call* that fails returns the last invalid reply uncached,
-        so a later rerun can try again.
+        so a later rerun can try again. An exhausted budget or provider quota is raised instead,
+        so an eval run pauses rather than recording the unrepaired reply as the answer.
         """
         assert request.response_model is not None  # noqa: S101 - guarded by caller
         conversation = list(call.messages)
@@ -357,6 +359,10 @@ class LLMClient:
                     tags=request.tags,
                     stage=stage,
                 )
+            except BudgetExhaustedError:
+                # A spent budget or provider quota is not "the repair failed": returning the
+                # invalid first reply would score it as a final result. Let the run pause.
+                raise
             except LLMError as exc:
                 logger.warning("repair call for '%s' failed: %s", spec.alias, type(exc).__name__)
                 return self._chat_response(spec, parts, schema_valid=False, repaired=len(parts) > 1)

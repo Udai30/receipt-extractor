@@ -1,2 +1,9 @@
-variant,dataset,subset,run_id,sample_size,primary_metric,value,ci_low,ci_high,p50_ms,p95_ms,list_cost_usd_per_1k,n_errors,notes,items_f1,items_precision,items_recall,reconcile,subtotal_f1,tax_f1,total_f1,valid_json
-gold,cord-v2,test,gold-9988f5dc0330,100,field_f1,1.0000,1.0000,1.0000,8,12,0.000000,0,,1.0000,1.0000,1.0000,0.8400,1.0000,1.0000,1.0000,1.0000
+variant,dataset,subset,run_id,sample_size,primary_metric,value,ci_low,ci_high,p50_ms,p95_ms,wall_p50_ms,wall_p95_ms,list_cost_usd_per_1k,n_errors,notes,items_f1,items_precision,items_recall,reconcile,subtotal_f1,tax_f1,total_f1,valid_json
+A,cord-v2,test,A-e8c045ee22e6,100,field_f1,0.8274,0.7741,0.8768,7560,50029,22971,144488,0.359226,0,,0.8141,0.8166,0.8261,0.6300,0.8060,0.8293,0.8700,0.9500
+A-naive,cord-v2,test,A-naive-5ed10911e9ae,100,field_f1,0.8200,0.7653,0.8702,2368,8364,28894,54282,0.352282,0,,0.7934,0.7962,0.8049,0.5900,0.8060,0.7805,0.8700,0.9400
+B,cord-v2,test,B-cea8aeff49d5,100,field_f1,0.9572,0.9305,0.9782,4142,17049,4891,17050,0.975087,0,,0.9353,0.9284,0.9467,0.8500,0.9254,1.0000,0.9900,1.0000
+gold,cord-v2,test,gold-9988f5dc0330,100,field_f1,1.0000,1.0000,1.0000,8,12,8,12,0.000000,0,,1.0000,1.0000,1.0000,0.8400,1.0000,1.0000,1.0000,1.0000
+A,cord-v2,validation,A-24c9db2a7d6d,10,field_f1,0.9389,0.8389,1.0000,1418,2275,1418,2275,0.378775,0,,0.9000,0.9000,0.9000,0.9000,0.8333,0.8333,1.0000,1.0000
+A-naive,cord-v2,validation,A-naive-1a8804eab2a8,10,field_f1,0.9389,0.8389,1.0000,29206,47771,29206,47771,0.358945,0,,0.9000,0.9000,0.9000,0.9000,0.8333,0.8333,1.0000,1.0000
+B,cord-v2,validation,B-8ddf1a98d199,10,field_f1,0.9500,0.8500,1.0000,61,232,61,232,0.849880,0,,0.9000,0.9000,0.9000,0.9000,1.0000,1.0000,1.0000,1.0000
+C-local,cord-v2,validation,C-local-f570f3318f3d,10,field_f1,0.9000,0.7000,1.0000,68,203,68,203,0.000000,0,,0.9000,0.9000,0.9000,0.9000,0.8571,0.8333,0.9000,1.0000

@@ -242,6 +242,13 @@ def eval_run(
         "--retry-errors",
         help="Also re-run cases whose last row is an error (appended; nothing is deleted).",
     ),
+    rerun_case: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--rerun-case",
+            help="Re-run this case id whatever its last row says (appended; repeatable).",
+        ),
+    ] = None,
 ) -> None:
     """Run (or resume) an evaluation; results stream to runs/<run_id>/results.jsonl."""
     import asyncio  # noqa: PLC0415 - keep `--help` light
@@ -254,7 +261,13 @@ def eval_run(
         prepared = prepare_run(config, Path.cwd())
         task = build_task(prepared.config.task, prepared.config.params)
         outcome = asyncio.run(
-            execute_run(prepared, task, concurrency=concurrency, retry_errors=retry_errors)
+            execute_run(
+                prepared,
+                task,
+                concurrency=concurrency,
+                retry_errors=retry_errors,
+                rerun_cases=frozenset(rerun_case or ()),
+            )
         )
     except EvalError as exc:
         typer.echo(f"error: {exc}", err=True)
@@ -315,6 +328,27 @@ def report_build(
     typer.echo(f"{result.rows} run(s) reported")
     for path in result.files:
         typer.echo(f"wrote {path.relative_to(Path.cwd().resolve()).as_posix()}")
+
+
+@report_app.command("readme")
+def report_readme(
+    runs_dir: str = typer.Option("runs", "--runs-dir", help="Directory of run dirs."),
+    out_dir: str = typer.Option("reports", "--out", help="Report directory."),
+) -> None:
+    """Fill README.md's results and failure tables from reports/ (between its marker comments)."""
+    from receipt_extractor.eval.errors import EvalError  # noqa: PLC0415
+    from receipt_extractor.eval.readme import update_readme  # noqa: PLC0415
+
+    try:
+        runs, out = _report_dirs(runs_dir, out_dir)
+        results = out / "results.csv"
+        if not results.is_file():
+            raise typer.BadParameter("reports/results.csv is missing; run `report build` first")
+        written = update_readme(Path.cwd() / "README.md", results, out / "failures.csv", runs)
+    except EvalError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(f"README.md updated: {', '.join(written)}")
 
 
 @report_app.command("failures")

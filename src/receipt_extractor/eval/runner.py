@@ -247,11 +247,16 @@ class RunSession:
 
 
 def _finished_ids(
-    results_path: Path, selected: Iterable[str], *, retry_errors: bool = False
+    results_path: Path,
+    selected: Iterable[str],
+    *,
+    retry_errors: bool = False,
+    rerun: frozenset[str] = frozenset(),
 ) -> set[str]:
     """Case ids that have a row. With ``retry_errors``, a case whose *last* row is an error is
     not finished: it runs again and its new row is appended (rows are never rewritten; every
-    reader takes the last row per case)."""
+    reader takes the last row per case). ``rerun`` names cases that run again whatever their
+    last row says, the same way."""
     wanted = set(selected)
     last_status: dict[str, object] = {}
     if not results_path.is_file():
@@ -263,8 +268,10 @@ def _finished_ids(
         if case_id in wanted:
             last_status[case_id] = obj.get("status")
     if retry_errors:
-        return {cid for cid, status in last_status.items() if status != "error"}
-    return set(last_status)
+        return {
+            cid for cid, status in last_status.items() if status != "error" and cid not in rerun
+        }
+    return set(last_status) - rerun
 
 
 def _load_or_write_manifest(prepared: PreparedRun, kaggle: KaggleInfo | None) -> Manifest:
@@ -291,15 +298,24 @@ def _load_or_write_manifest(prepared: PreparedRun, kaggle: KaggleInfo | None) ->
 
 @contextmanager
 def open_session(
-    prepared: PreparedRun, *, kaggle: KaggleInfo | None = None, retry_errors: bool = False
+    prepared: PreparedRun,
+    *,
+    kaggle: KaggleInfo | None = None,
+    retry_errors: bool = False,
+    rerun_cases: frozenset[str] = frozenset(),
 ) -> Iterator[RunSession]:
+    unknown = rerun_cases - set(prepared.case_ids)
+    if unknown:
+        raise RunConfigError(f"--rerun-case: not in this run: {', '.join(sorted(unknown))}")
     prepared.run_dir.mkdir(parents=True, exist_ok=True)
     with RunLock(prepared.run_dir / LOCK_FILENAME):
         manifest = _load_or_write_manifest(prepared, kaggle)
         results_path = prepared.run_dir / RESULTS_FILENAME
         if repair_tail(results_path):
             logger.warning("run %s: removed a partial last line after a crash", prepared.run_id)
-        finished = _finished_ids(results_path, prepared.case_ids, retry_errors=retry_errors)
+        finished = _finished_ids(
+            results_path, prepared.case_ids, retry_errors=retry_errors, rerun=rerun_cases
+        )
         appender = JSONLAppender(results_path)
         try:
             yield RunSession(
@@ -316,6 +332,7 @@ async def execute_run(
     concurrency: int | None = None,
     clock: Callable[[], float] = time.perf_counter,
     retry_errors: bool = False,
+    rerun_cases: frozenset[str] = frozenset(),
 ) -> RunOutcome:
     config = prepared.config
     workers = concurrency or config.concurrency
@@ -323,7 +340,7 @@ async def execute_run(
     pause = asyncio.Event()
     pause_reason: list[str] = []
 
-    with open_session(prepared, retry_errors=retry_errors) as session:
+    with open_session(prepared, retry_errors=retry_errors, rerun_cases=rerun_cases) as session:
         metrics = session.metrics
 
         async def run_case(case_id: str) -> ResultRow | None:

@@ -2,12 +2,19 @@
 
 > A receipt photo goes in; validated JSON (line items, prices, totals) comes out — OCR+LLM vs a vision LLM, compared on accuracy, latency and cost.
 
+> **Headline:** _[one sentence — filled from `reports/results.md` once A-naive, A and B are complete
+> on the same 100 test receipts; no hand-typed numbers]_
+
 ## Results
 
 | Pipeline | Model | Field F1 | Total exact | Valid % | p50 / p95 latency | List cost / 1k |
 |---|---|---|---|---|---|---|
 
-_Generated from `reports/` once the benchmark runs exist._
+_Generated from `reports/` once the benchmark runs exist (`uv run receipt_extractor report build`)._
+
+![Receipts in, validated JSON out: both pipelines side by side](docs/demo.gif)
+
+_[GIF recorded by the human from `docs/GIF_SCRIPT.md`; not yet recorded.]_
 
 ## Quickstart
 
@@ -35,7 +42,39 @@ deployment: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Architecture
 
-See [TRD.md](TRD.md) §2.
+```mermaid
+flowchart LR
+    IMG[Receipt image] --> A1[RapidOCR<br/>CPU]
+    A1 --> A2[Groq gpt-oss-20b<br/>text to JSON]
+    IMG --> B1[Downscale<br/>1,536 px]
+    B1 --> B2[Gemini Flash-Lite vision<br/>JSON schema]
+    IMG -.-> C1[Qwen2.5-VL-3B<br/>Kaggle T4, imported]
+
+    A2 --> V
+    B2 --> V
+    C1 -.-> V
+
+    subgraph V[Shared validation]
+        direction TB
+        V1[Receipt schema<br/>Pydantic] --> V2[Repair re-ask<br/>up to 2]
+        V2 --> V3[Arithmetic check<br/>reconcile with tolerance]
+        V3 --> V4[needs_review flag]
+    end
+
+    V --> R[Eval runner<br/>runs/ resumable, cached]
+    R --> REP[Reports<br/>results.csv, failures.csv, charts]
+    REP --> UI[Gradio Space<br/>Results, Try it, Failures]
+```
+
+Pipelines A, B and C all return the same `Receipt` model, so the scorer compares them field by
+field. `A-naive` skips the repair and arithmetic steps and stays in every table as the baseline.
+Uploads go to pipeline A only; Gemini sees public CORD images only. Details: [TRD.md](TRD.md) §2.
+
+## How it works, evaluation method, failures
+
+_[To write from the measured runs: how each pipeline works; the scorer (order-insensitive item
+matching, 95 % bootstrap CIs); the labelled failure list from `reports/failures.csv` grouped by
+cause; cost and latency (p50/p95 excluding free-tier pacing, wall clock alongside).]_
 
 ## Evaluation
 
@@ -74,5 +113,9 @@ CORD-v2 (`naver-clova-ix/cord-v2`, CC-BY-4.0) is downloaded at a pinned revision
 records in `tests/fixtures/cord/` are excerpts of it under the same licence.
 
 ## Limitations
+
+_To be written after the benchmark._
+
+## What I'd do differently
 
 _To be written after the benchmark._

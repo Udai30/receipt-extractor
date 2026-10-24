@@ -38,6 +38,37 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 ---
 
+## 2026-10-24 — M3.1 (partial) + MF.1 (drafts) · A-naive failure labels and write-up scaffolding
+
+**Done:**
+- **Order:** started while M2.3's A and B runs wait on free-tier budgets, by the human's instruction in chat (2026-10-24: start M3.1 labelling on A-naive, draft MF.1, review the Qwen notebook). M3.1 is **not** finished: it needs A and B failures and the one fix with a before/after.
+- **Failure labels (A-naive `A-naive-5ed10911e9ae`, 45 failures, all hand-labelled** by reading gold vs prediction vs OCR text; `uv run receipt_extractor report failures --run-id A-naive-5ed10911e9ae`, then the labels were written into `reports/failures.csv`; a re-export kept them):
+
+  | failure_label | count |
+  |---|---|
+  | other | 20 |
+  | ocr_misread | 8 |
+  | wrong_item_split | 7 |
+  | hallucinated_item | 6 |
+  | number_format | 4 |
+
+  `other` is the largest and splits (see each row's `note`) into: invalid JSON, no receipt returned (6, matching valid_json 0.94); item lines dropped, no items returned (6); leading quantity left in item names (about 6); the rest single cases (cash taken as total, tax line not recognised, duplicate lines collapsed).
+- **Candidates for the one fix (not chosen yet; decide once A and B are labelled too):** invalid JSON and dropped items (the repair loop in engineered A targets these); quantity left in names (a prompt rule); summary lines taken as items (`ITEMS 1.00`, category subtotals, barcodes).
+- **MF.1 drafts (no measured numbers typed):** README now has a headline placeholder, a GIF placeholder, a Mermaid architecture diagram, an evaluation/failures placeholder and a "what I'd do differently" section; `docs/GIF_SCRIPT.md` (shot list, human records); `docs/LINKEDIN_DRAFT.md` (outline with `[brackets]`, resume bullet, checklist).
+- **Qwen notebook generator:** reviewed, no change. It has not been executed (no CUDA GPU), so a fix without a failing run would be a guess. One risk to watch on Kaggle: fp16 on a T4 (no bfloat16) can give degraded output for Qwen2.5-VL; if so, fix it in `pipelines/qwen_notebook.py` and regenerate.
+- Tests: no code changed; docs and a report CSV only.
+
+**Files:** modified `README.md`, `WORKLOG.md`; added `docs/GIF_SCRIPT.md`, `docs/LINKEDIN_DRAFT.md`; `reports/failures.csv` (generated, hand-labelled).
+
+**Open:**
+- Label A's and B's failures once those runs complete, then pick and implement one fix (validated on the validation split), re-run the affected variants on test, and add the before/after row to `reports/results.md`.
+- Fill the README headline, results table, failures and limitations from the final reports (MF.1 proper).
+- Human action: record the GIF from `docs/GIF_SCRIPT.md`.
+- A (67/100, 33 error rows) and B (32/100) are paused; the background loop that resumed them is no longer running and must be restarted.
+- Nothing committed.
+
+---
+
 ## 2026-10-23 — M3.2 · Gradio Space (Results, Try it, Failures)
 
 **Done:**

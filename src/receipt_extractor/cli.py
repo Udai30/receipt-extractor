@@ -237,6 +237,11 @@ def eval_run(
     concurrency: int | None = typer.Option(
         None, "--concurrency", min=1, max=64, help="Override the config's concurrency."
     ),
+    retry_errors: bool = typer.Option(
+        False,
+        "--retry-errors",
+        help="Also re-run cases whose last row is an error (appended; nothing is deleted).",
+    ),
 ) -> None:
     """Run (or resume) an evaluation; results stream to runs/<run_id>/results.jsonl."""
     import asyncio  # noqa: PLC0415 - keep `--help` light
@@ -248,7 +253,9 @@ def eval_run(
     try:
         prepared = prepare_run(config, Path.cwd())
         task = build_task(prepared.config.task, prepared.config.params)
-        outcome = asyncio.run(execute_run(prepared, task, concurrency=concurrency))
+        outcome = asyncio.run(
+            execute_run(prepared, task, concurrency=concurrency, retry_errors=retry_errors)
+        )
     except EvalError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from None

@@ -291,3 +291,16 @@ async def test_report_regenerates_identically_from_the_same_runs(
         assert (project / "out1" / name).read_bytes() == (project / "out2" / name).read_bytes(), (
             name
         )
+
+
+async def test_failure_export_uses_each_case_last_row(project: Path, prepare: Prepare) -> None:
+    from receipt_extractor.eval.report import export_failures  # noqa: PLC0415
+
+    run = prepare(5)
+    await execute_run(run, build_task("toy", {"raise_ids": ["toy-00002"]}))
+    path, _ = export_failures(project / "runs", project / "reports")
+    assert "toy-00002" in path.read_text(encoding="utf-8")
+
+    await execute_run(run, build_task("toy", {}), retry_errors=True)  # the retry passes
+    path, _ = export_failures(project / "runs", project / "reports")
+    assert "toy-00002" not in path.read_text(encoding="utf-8")

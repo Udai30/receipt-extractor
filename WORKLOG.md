@@ -32,8 +32,8 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M3.2 done locally (deploy = human action) · M2.3 in progress (A-naive resuming 2026-10-23; A, B by budget plan) · M2.1, M2.2 done · M2.4 notebook ready, waiting for the human's Kaggle run · next: M3.1 when M2.3's test rows exist |
-| Last verified gate run | 2026-10-23 (M3.2): ruff check + format, mypy, pytest 595 passed / 9 skipped (8 live, 1 symlink), pip-audit — all green; local app checked end to end in the browser + 3 live uploads |
+| Current task | M2.3 in progress: **A-naive done** (field_f1 0.820 [0.765, 0.870]); A 23/100 (77 error rows to retry), B 16/100 — day-2 job resumes both from 00:05 UTC 2026-10-24 · M3.2 done locally (deploy = human action) · M2.1, M2.2 done · M2.4 waiting for the human's Kaggle run · next: M3.1 when M2.3 completes |
+| Last verified gate run | 2026-10-23 (M2.3 quota fix): ruff check + format, mypy, pytest 600 passed / 9 skipped (8 live, 1 symlink), pip-audit — all green |
 | Pending human actions | Deploy the Space (`docs/DEPLOY.md`); run `notebooks/qwen_vl_cord.ipynb` on Kaggle and import it (M2.4); confirm `gemini-3.5-flash-lite` free-tier RPD in AI Studio; decide on a C-local test row, on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
 
 ---
@@ -126,6 +126,19 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Gates (final): `ruff check` clean, `ruff format --check` clean (95 files), `mypy src` clean (50 files, strict), `pytest -q` **551 passed, 9 skipped** (8 live, 1 symlink), `pip-audit` no known vulnerabilities.
 - Security: no new input; run configs are YAML via `safe_load`, paths confined (existing). Performance: the runs pause on budget instead of failing (respecting the free tiers) and resume by case id.
 
+- **Incident (2026-10-23, 02:19–03:29 UTC) and fix.** The day's chain reported A-naive `A-naive-5ed10911e9ae` **completed with 11 error rows** (field_f1 0.7346, counting errors as 0) and A `A-e8c045ee22e6` **completed with 93 error rows** (field_f1 0.0449) — not usable numbers. Every error was Groq HTTP 429 *"on tokens per day (TPD): Limit 200000, Used 199749"* while the local tracker showed ~143K for the UTC day: Groq's TPD is a **rolling window** (yesterday evening's ~195K still counted). The client correctly refused to wait hours inside a call but raised a plain `RateLimitedError`, which the runner records as a case error, so A raced through 93 cases in minutes.
+  - Fix: a 429 with `Retry-After` above the in-call cap or a message naming a per-day limit now raises `ProviderQuotaExhaustedError` (a `BudgetExhaustedError`) without retries, and the run **pauses** instead of writing error rows.
+  - New `eval run --retry-errors` re-runs cases whose last row is an error, append-only; `export_failures` now takes each case's last row (a retried pass drops out of `failures.csv`).
+  - Tests: quota by `Retry-After`, quota by per-day text without `Retry-After` (1 call, no sleeps), per-minute 429 still retried, the runner pauses with no error rows, retry-errors re-runs only error rows and the summary uses the last row, failures export uses the last row. Gates after the fix: ruff/format/mypy clean, `pytest -q` **600 passed, 9 skipped**.
+  - Verified live: `eval run --config configs/runs/a-naive.yaml --retry-errors` at 03:36 UTC ran 1 case, then Groq refused ("retry after 763 s") and the run **paused with 0 new error rows** (A-naive now 90/100 done by last row: 50 pass, 40 fail, 10 error waiting for retry).
+  - A background loop now resumes A-naive, then A, with `--retry-errors`, every 15 min while paused (≤ 48 attempts each). The error rows stay in the files as the record of the incident; summaries and reports use each case's last row.
+- **A-naive complete (2026-10-23, by each case's last row):** `A-naive-5ed10911e9ae`, 100/100, **0 errors** (55 pass, 45 fail): **field_f1 0.8200 [0.7653, 0.8702]**, items_f1 0.7934 [0.7267, 0.8624], total_f1 0.87 [0.80, 0.93], valid_json 0.94 [0.89, 0.98], reconcile 0.59 [0.49, 0.68].
+  - Latency excluding pacing: p50 2,368 ms, p95 8,364 ms; wall clock: p50 28,894 ms, p95 54,282 ms.
+  - Tokens: 104,102 in / 91,401 out; list cost $0.352282 per 1k (actual $0).
+  - The 11 error rows were retried by the loop (111 rows for 100 cases; the incident rows remain as the record).
+- **A** `A-e8c045ee22e6`: 23/100 done by last row (12 pass, 11 fail), **77 error rows still to retry**. The loop's 48 attempts ended 18:07 UTC, paused on the local UTC-day budget (196,972/200,000).
+- **Day 2 scheduled** (background job, starts 00:05 UTC 2026-10-24): `b.yaml` (its 20 Gemini requests), then `a.yaml --retry-errors` every 15 min while paused (≤ 96 attempts). Estimated A completion 2026-10-24 (77 cases × ≈ 2–2.5K tokens).
+- B `B-cea8aeff49d5` started after the UTC reset: **16/100, 0 errors, paused** on the local 20 requests/day (as planned).
 **Files:** added `configs/runs/{a-naive,a,b}.yaml`; modified `src/receipt_extractor/eval/{tasks,records,runner,summary,report}.py`, `src/receipt_extractor/pipelines/tasks.py` (passes `llm_wait` as `wait_ms`), `tests/unit/eval/test_import_report.py`, `TRD.md` §S5, `BACKEND_SCHEMA.md` §S2/§S3, `WORKLOG.md`. Run artefacts (gitignored): `runs/A-naive-5ed10911e9ae/` (paused).
 
 **Decisions:**

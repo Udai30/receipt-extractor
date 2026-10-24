@@ -246,18 +246,25 @@ class RunSession:
         )
 
 
-def _finished_ids(results_path: Path, selected: Iterable[str]) -> set[str]:
+def _finished_ids(
+    results_path: Path, selected: Iterable[str], *, retry_errors: bool = False
+) -> set[str]:
+    """Case ids that have a row. With ``retry_errors``, a case whose *last* row is an error is
+    not finished: it runs again and its new row is appended (rows are never rewritten; every
+    reader takes the last row per case)."""
     wanted = set(selected)
-    done: set[str] = set()
+    last_status: dict[str, object] = {}
     if not results_path.is_file():
-        return done
+        return set()
     for lineno, obj in iter_jsonl(results_path):
         case_id = obj.get("case_id")
         if not isinstance(case_id, str):
             raise RunCorruptError(f"{results_path.name}:{lineno}: row has no case_id")
         if case_id in wanted:
-            done.add(case_id)
-    return done
+            last_status[case_id] = obj.get("status")
+    if retry_errors:
+        return {cid for cid, status in last_status.items() if status != "error"}
+    return set(last_status)
 
 
 def _load_or_write_manifest(prepared: PreparedRun, kaggle: KaggleInfo | None) -> Manifest:
@@ -284,7 +291,7 @@ def _load_or_write_manifest(prepared: PreparedRun, kaggle: KaggleInfo | None) ->
 
 @contextmanager
 def open_session(
-    prepared: PreparedRun, *, kaggle: KaggleInfo | None = None
+    prepared: PreparedRun, *, kaggle: KaggleInfo | None = None, retry_errors: bool = False
 ) -> Iterator[RunSession]:
     prepared.run_dir.mkdir(parents=True, exist_ok=True)
     with RunLock(prepared.run_dir / LOCK_FILENAME):
@@ -292,7 +299,7 @@ def open_session(
         results_path = prepared.run_dir / RESULTS_FILENAME
         if repair_tail(results_path):
             logger.warning("run %s: removed a partial last line after a crash", prepared.run_id)
-        finished = _finished_ids(results_path, prepared.case_ids)
+        finished = _finished_ids(results_path, prepared.case_ids, retry_errors=retry_errors)
         appender = JSONLAppender(results_path)
         try:
             yield RunSession(
@@ -308,6 +315,7 @@ async def execute_run(
     *,
     concurrency: int | None = None,
     clock: Callable[[], float] = time.perf_counter,
+    retry_errors: bool = False,
 ) -> RunOutcome:
     config = prepared.config
     workers = concurrency or config.concurrency
@@ -315,7 +323,7 @@ async def execute_run(
     pause = asyncio.Event()
     pause_reason: list[str] = []
 
-    with open_session(prepared) as session:
+    with open_session(prepared, retry_errors=retry_errors) as session:
         metrics = session.metrics
 
         async def run_case(case_id: str) -> ResultRow | None:

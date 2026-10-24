@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -26,8 +27,10 @@ from receipt_extractor.llm.errors import (
     LLMError,
     MissingCredentialsError,
     ProviderError,
+    ProviderQuotaExhaustedError,
     ProviderRequestError,
     ProviderTimeoutError,
+    RateLimitedError,
     RetriesExhaustedError,
     UnknownModelError,
     sanitize_error_text,
@@ -71,6 +74,8 @@ MAX_VALIDATION_ERRORS: Final = 10
 MAX_STAGE_CHARS: Final = 64
 FREE_TIER_COST: Final = Decimal(0)  # only free tiers are allowed (CLAUDE.md §4)
 
+# Provider 429 texts naming a per-day limit: Groq "tokens per day (TPD)", Gemini "...PerDay...".
+_DAILY_QUOTA_RE: Final = re.compile(r"per[\s_-]?day|\b(?:TPD|RPD)\b|daily", re.IGNORECASE)
 _PUBLIC_ONLY_ORIGINS: Final[frozenset[DataOrigin]] = frozenset({"public_dataset", "synthetic"})
 _KEY_ENV_VARS: Final = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
 
@@ -512,13 +517,12 @@ class LLMClient:
             final: LLMError | None = None
             if not error.retryable:
                 final = error
+            elif self._is_daily_quota(error):
+                # The provider's own daily window (it need not match the local UTC tracker):
+                # waiting hours inside a call is never right; the runner pauses on this.
+                final = ProviderQuotaExhaustedError(spec.alias, error.retry_after_s)
             elif failures >= self._retry.max_attempts:
                 final = RetriesExhaustedError(spec.alias, failures, error)
-            elif (
-                error.retry_after_s is not None
-                and error.retry_after_s > self._retry.max_retry_after_s
-            ):
-                final = error  # e.g. daily quota: waiting hours inside a call is never right
             if final is not None:
                 wait_ms = round(waited_s * 1000)
                 await self._emit(
@@ -545,6 +549,15 @@ class LLMClient:
                 delay,
             )
             await self._sleep(delay)
+
+    def _is_daily_quota(self, error: ProviderError) -> bool:
+        """A 429 that will not clear within a call: a far ``Retry-After`` or a per-day limit."""
+        if not isinstance(error, RateLimitedError):
+            return False
+        far = (
+            error.retry_after_s is not None and error.retry_after_s > self._retry.max_retry_after_s
+        )
+        return far or _DAILY_QUOTA_RE.search(str(error)) is not None
 
     # --- cache ------------------------------------------------------------------------
 

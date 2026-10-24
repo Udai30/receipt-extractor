@@ -91,6 +91,25 @@ class BudgetExhaustedError(LLMError):
         )
 
 
+class ProviderQuotaExhaustedError(BudgetExhaustedError):
+    """The *provider* refused for its daily quota (a per-day 429 or a far ``Retry-After``).
+
+    Its window need not match the local UTC tracker (Groq's tokens-per-day is not reset at UTC
+    midnight), so the local budget can say "fine" while the provider says no. Being a
+    :class:`BudgetExhaustedError`, it pauses an eval run instead of recording error rows.
+    """
+
+    def __init__(self, alias: str, retry_after_s: float | None) -> None:
+        self.retry_after_s = retry_after_s
+        LLMError.__init__(
+            self,
+            f"provider daily quota for '{alias}' exhausted"
+            + (f" (retry after {retry_after_s:.0f} s)" if retry_after_s is not None else "")
+            + "; resume the run later",
+        )
+        self.alias, self.resource, self.used, self.limit = alias, "provider quota", 0, 0
+
+
 class ProviderError(LLMError):
     """A provider call failed. ``retryable`` decides whether the client retries it."""
 

@@ -255,8 +255,15 @@ rename the package.
 - **Rate limits and budgets:** token-bucket RPM/TPM per alias plus a persisted per-day RPD/TPD
   budget, so a sweep **pauses** instead of hitting 429s. On Groq's free plan tokens-per-day is
   usually the binding limit: `n ≈ TPD × days ÷ tokens_per_case`. Re-check limits in the console.
+  The local tracker counts per **UTC day**; Groq's TPD is a **rolling window** (observed
+  2026-10-23: refused at 199,749/200,000 while the local day showed ~143K), so the provider can
+  say no first. A 429 that will not clear within a call — `Retry-After` above the in-call cap
+  (120 s) or a message naming a per-day limit ("tokens per day (TPD)", Gemini "…PerDay…") — is
+  raised as `ProviderQuotaExhaustedError`, a `BudgetExhaustedError`, so a run **pauses** on it
+  (no error rows) and resumes later.
 - **Retries:** jittered exponential backoff on 429/5xx/timeouts (max 5 attempts, honours
-  `Retry-After`); no retry on 4xx validation errors; hard timeout per call (default 60 s).
+  `Retry-After`); no retry on 4xx validation errors or on provider daily quotas; hard timeout per
+  call (default 60 s).
 - **Structured output:** schema sent as `response_format`, reply validated with Pydantic, up to
   `max_repairs` (1–2, default 1; pipelines use 2 since M2.2) repair attempts with the validation
   errors appended, then `schema_valid = false`. `repair = false` on the request (naive baselines)
@@ -293,7 +300,10 @@ rename the package.
   short hash of the resolved config + dataset manifest hash.
 - The **runner** iterates cases with bounded concurrency (default 4), appends one JSON line per case
   to `runs/<run_id>/results.jsonl` immediately and **resumes** by skipping finished case ids.
-  A case-level exception becomes `status = error`; it never aborts the run.
+  A case-level exception becomes `status = error`; it never aborts the run. `eval run
+  --retry-errors` also re-runs cases whose *last* row is an error; the new row is appended (never
+  rewritten), and every reader (summary, reports, failures export, showcase) takes the last row
+  per case.
 - At the end it writes `summary.json` (metrics with 95 % bootstrap CIs where meaningful, latency
   p50/p95, tokens, list cost per 1k) and `manifest.json` (git SHA if available, package versions,
   dataset hash, resolved config).

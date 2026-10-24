@@ -238,3 +238,49 @@ async def test_jsonl_dataset_run(project: Path, prepare: Prepare) -> None:
     assert outcome.summary is not None
     assert outcome.summary.sample_size == 4
     assert outcome.summary.metrics["exact_match"].value == 1.0
+
+
+# --- provider quota and retrying error rows (M2.3 incident, 2026-10-23) ----------------------
+
+
+class QuotaTask(AddTask):
+    """The provider refuses for its daily quota from the 4th case on."""
+
+    async def __call__(self, case: Case, ctx: CaseContext) -> CaseOutput:
+        from receipt_extractor.llm.errors import ProviderQuotaExhaustedError  # noqa: PLC0415
+
+        if len(self.calls) >= 3:
+            self.calls.append(case.case_id)
+            raise ProviderQuotaExhaustedError("test-chat", 7200.0)
+        return await super().__call__(case, ctx)
+
+
+async def test_provider_quota_pauses_instead_of_writing_error_rows(prepare: Prepare) -> None:
+    prepared = prepare(10)
+    outcome = await execute_run(prepared, QuotaTask(), concurrency=1)
+
+    assert outcome.status == "paused" and outcome.paused_reason is not None
+    assert "provider daily quota" in outcome.paused_reason
+    rows = read_rows(prepared.run_dir)
+    assert len(rows) == 3 and all(r.status == "pass" for r in rows)  # no error rows
+
+
+async def test_retry_errors_reruns_only_error_rows_and_last_row_wins(prepare: Prepare) -> None:
+    prepared = prepare(6)
+    await execute_run(prepared, AddTask(raise_ids=frozenset({"toy-00001", "toy-00004"})))
+
+    plain = AddTask()
+    resumed = await execute_run(prepared, plain)
+    assert plain.calls == [] and resumed.executed == 0  # a normal resume keeps error rows
+
+    retry = AddTask()
+    outcome = await execute_run(prepared, retry, retry_errors=True)
+    assert sorted(retry.calls) == ["toy-00001", "toy-00004"]
+    rows = read_rows(prepared.run_dir)
+    assert len(rows) == 8  # appended, nothing rewritten
+    assert outcome.summary is not None and outcome.summary.n_errors == 0
+    assert outcome.summary.metrics["exact_match"].value == pytest.approx(1.0)
+
+    again = AddTask()
+    await execute_run(prepared, again, retry_errors=True)
+    assert again.calls == []  # nothing left to retry

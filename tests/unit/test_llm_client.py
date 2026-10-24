@@ -17,6 +17,7 @@ from receipt_extractor.llm.errors import (
     BudgetExhaustedError,
     DataPolicyError,
     MissingCredentialsError,
+    ProviderQuotaExhaustedError,
     ProviderRequestError,
     RateLimitedError,
     RetriesExhaustedError,
@@ -163,12 +164,39 @@ async def test_bad_request_is_not_retried(make_client: Factory, sink: MemorySink
     assert sink.records[0].error is not None
 
 
-async def test_retry_after_beyond_cap_fails_fast(make_client: Factory, clock: Any) -> None:
+async def test_retry_after_beyond_cap_fails_fast_as_quota(
+    make_client: Factory, clock: Any, sink: MemorySink
+) -> None:
     provider = FakeProvider([FakeFailure("rate_limit", retry_after_s=3600.0), FakeReply()])
-    with pytest.raises(RateLimitedError):
+    with pytest.raises(ProviderQuotaExhaustedError, match="retry after 3600 s"):
         await make_client(provider).complete(chat())
     assert len(provider.calls) == 1
     assert clock.sleeps == []
+    assert sink.records[-1].error is not None  # the refused call is still accounted
+
+
+async def test_per_day_429_text_is_a_quota_even_without_retry_after(
+    make_client: Factory, clock: Any
+) -> None:
+    class DailyLimit(FakeProvider):
+        async def complete(self, call: ChatCall) -> ChatResult:
+            self.calls.append(call)
+            raise RateLimitedError(
+                "Rate limit reached on tokens per day (TPD): Limit 200000, Used 199749",
+                status_code=429,
+            )
+
+    provider = DailyLimit()
+    with pytest.raises(ProviderQuotaExhaustedError):
+        await make_client(provider).complete(chat())
+    assert len(provider.calls) == 1 and clock.sleeps == []  # no futile retries
+    assert isinstance(ProviderQuotaExhaustedError("x", None), BudgetExhaustedError)  # pauses runs
+
+
+async def test_per_minute_429_is_still_retried(make_client: Factory, clock: Any) -> None:
+    provider = FakeProvider([FakeFailure("rate_limit", retry_after_s=2.0), FakeReply(text="ok")])
+    response = await make_client(provider).complete(chat())
+    assert response.text == "ok" and response.retries == 1 and clock.sleeps
 
 
 async def test_hard_timeout_cancels_hung_call_and_retries(make_client: Factory) -> None:

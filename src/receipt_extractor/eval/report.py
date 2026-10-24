@@ -367,6 +367,7 @@ def export_failures(
     exported = 0
     for run in runs:
         results = run.run_dir / RESULTS_FILENAME
+        last: dict[str, ResultRow] = {}  # a retried case's last row supersedes earlier ones
         for lineno, obj in iter_jsonl(results):
             try:
                 row = ResultRow.model_validate(obj)
@@ -374,10 +375,13 @@ def export_failures(
                 raise RunCorruptError(
                     f"{run.summary.run_id}/{RESULTS_FILENAME}:{lineno}: invalid row"
                 ) from None
+            last[row.case_id] = row
+        for row in last.values():
+            key = (run.summary.run_id, row.case_id)
             if row.status == "pass":
+                merged.pop(key, None)  # fixed by a retry: no longer a failure
                 continue
             exported += 1
-            key = (run.summary.run_id, row.case_id)
             previous = merged.get(key, {})
             error = str(row.details.get("error") or "")[:_MAX_NOTE_CHARS]
             merged[key] = {

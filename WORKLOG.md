@@ -32,7 +32,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | M2.3 in progress: **A-naive done** (field_f1 0.820 [0.765, 0.870]); A 23/100 (77 error rows to retry), B 16/100 — day-2 job resumes both from 00:05 UTC 2026-10-24 · M3.2 done locally (deploy = human action) · M2.1, M2.2 done · M2.4 waiting for the human's Kaggle run · next: M3.1 when M2.3 completes |
+| Current task | (2026-10-27) M2.3 done; M3.1 done (A: 0.8274 → 0.8464 after the quota-repair fix); next MF.1 write-up · earlier: M2.3 in progress: **A-naive done** (field_f1 0.820 [0.765, 0.870]); A 23/100 (77 error rows to retry), B 16/100 — day-2 job resumes both from 00:05 UTC 2026-10-24 · M3.2 done locally (deploy = human action) · M2.1, M2.2 done · M2.4 waiting for the human's Kaggle run · next: M3.1 when M2.3 completes |
 | Last verified gate run | 2026-10-23 (M2.3 quota fix): ruff check + format, mypy, pytest 600 passed / 9 skipped (8 live, 1 symlink), pip-audit — all green |
 | Pending human actions | Deploy the Space (`docs/DEPLOY.md`); run `notebooks/qwen_vl_cord.ipynb` on Kaggle and import it (M2.4); confirm `gemini-3.5-flash-lite` free-tier RPD in AI Studio; decide on a C-local test row, on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
 
@@ -48,6 +48,35 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 **Open:**
 - A (`A-e8c045ee22e6`) still has error rows to retry (Groq daily quota); then `report build`.
+- Not committed.
+
+---
+
+## 2026-10-27 — M3.1 · quota-repair fix re-run and measured (before/after) + live latency check
+
+**Done:**
+- **M3.1 fix (human's choice, chat 2026-10-24): the repair/quota bug fix, no prompt changes.** After `LLMClient._repair` was changed to pause on a quota refusal and `eval run --rerun-case` was added, the 5 affected A cases (test-0012, -0026, -0061, -0066, -0068) were re-run through a retry loop (Groq's rolling daily quota blocked it for a day; no error rows were written meanwhile). New rows were appended; every reader takes the last row per case. Run `A-e8c045ee22e6`, 100 test receipts, same ids:
+
+  | A (engineered) | before | after |
+  |---|---|---|
+  | field_f1 [95 % CI] | 0.8274 [0.7741, 0.8768] | **0.8464 [0.8014, 0.8894]** |
+  | items_f1 | 0.8141 | 0.8358 |
+  | subtotal_f1 / total_f1 | 0.8060 / 0.8700 | 0.8358 / 0.8900 |
+  | valid_json | 0.95 | **0.98** |
+  | reconcile | 0.63 | 0.63 |
+  | latency p50 / p95 (excl. pacing) | 7,560 / 50,029 ms | 7,148 / 31,914 ms |
+  | list cost per 1k | $0.3592 | $0.3930 |
+
+  Per case, now valid: test-0026 0.00 → 0.80, -0066 0.00 → 0.60, -0068 0.00 → 0.50 (its first reply was valid this time, so it needed no repair), -0061 valid but still 0.00 (two zero-price items dropped, a price kept as "18.0001"); test-0012 is still invalid after 3 attempts (an unparseable fused amount in the OCR text survives both repairs). A-naive is unchanged (0.8200 [0.7653, 0.8702], valid_json 0.94, baseline), so A now beats the baseline by 0.026 field F1 and 4 points of valid JSON, with overlapping CIs: **the engineering (repairs + checks) helps on validity; its effect on accuracy is small and not statistically separable at n = 100.** B is unchanged (0.9572).
+- The 5 A failure labels were rewritten from the new predictions (`reports/failures.csv`, 103 rows, 0 unlabelled); README tables regenerated with `report readme`.
+- **Live latency check (TRD §S7, pipeline A on uploads, `ui.live.default_live_service`, no cache, validation receipts 0010–0029, sequential, nothing else running):** 20 uploads: 16 ok, 4 refused by the 5 MB upload cap (PNG files of 6.7–10.7 MB, working as designed). Of the 16: service time (excluding Groq pacing waits) **p50 7.2 s, p95 15.0 s**; wall clock p50 12.9 s, p95 26.6 s (mean pacing wait 9.1 s from the free plan's 8,000 tokens/min). RapidOCR on this CPU takes 1.5–7.1 s (median ≈ 4.2 s) and is the largest stage; the model call takes 0.6–4.4 s (one 12 s outlier). **The TRD target p95 < 8 s is not met** here, and a free Space CPU is likely slower. This is recorded as a limitation, not hidden.
+
+**Files:** `reports/failures.csv`, `reports/results.csv|md`, charts, `README.md` (regenerated tables), `WORKLOG.md`. No source change in this entry.
+
+**Open:**
+- Decide how to treat the latency target: change the target in TRD §S7 to measured numbers, or reduce OCR time (a smaller OCR input size is a code change and would need the benchmark re-run since it alters A's input; not started).
+- Fill the README headline, "how it works", limitations, "what I'd do differently" and the resume bullet and LinkedIn brackets from the final numbers (MF.1).
+- Human actions unchanged: Kaggle run (M2.4), deploy the Space, record the GIF, publish; choose a LICENSE and whether to publish row C.
 - Not committed.
 
 ---

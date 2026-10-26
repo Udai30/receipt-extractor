@@ -11,7 +11,7 @@
 | Pipeline | Model | Field F1 [95% CI] | Valid JSON | Reconciled | p50 / p95 latency | List cost / 1k | Run |
 |---|---|---|---|---|---|---|---|
 | A-naive | groq-oss-20b | 0.8200 [0.7653, 0.8702] | 0.94 | 0.59 | 2.4 s / 8.4 s | $0.3523 | `A-naive-5ed10911e9ae` |
-| A | groq-oss-20b | 0.8274 [0.7741, 0.8768] | 0.95 | 0.63 | 7.6 s / 50.0 s | $0.3592 | `A-e8c045ee22e6` |
+| A | groq-oss-20b | 0.8464 [0.8014, 0.8894] | 0.98 | 0.63 | 7.1 s / 31.9 s | $0.3930 | `A-e8c045ee22e6` |
 | B | gemini-flash-lite | 0.9572 [0.9305, 0.9782] | 1.00 | 0.85 | 4.1 s / 17.0 s | $0.9751 | `B-cea8aeff49d5` |
 <!-- results:end -->
 
@@ -81,11 +81,11 @@ Uploads go to pipeline A only; Gemini sees public CORD images only. Details: [TR
 <!-- failures:start -->
 | Failure cause | A-naive | A | B |
 |---|---|---|---|
-| ocr_misread | 8 | 9 | 0 |
+| ocr_misread | 8 | 11 | 0 |
 | wrong_item_split | 7 | 7 | 0 |
 | hallucinated_item | 6 | 5 | 6 |
-| number_format | 4 | 3 | 0 |
-| other | 20 | 18 | 10 |
+| number_format | 4 | 5 | 0 |
+| other | 20 | 14 | 10 |
 | **Total** | 45 | 42 | 16 |
 <!-- failures:end -->
 

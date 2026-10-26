@@ -52,6 +52,29 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 ---
 
+## 2026-10-27 — MF.1 · README, resume bullet and LinkedIn draft written from the final reports
+
+**Done:**
+- **README** reordered to the UI_UX_DESIGN §S5 order: headline → results table → (GIF placeholder, commented out so no broken image shows) → architecture → how it works → evaluation method → what the numbers say (with the one-fix before/after) → failures by cause → limitations → what I'd do differently → reproduce (setup, demo app, commands). The results and failure tables are still generated (`report readme`); the prose numbers were checked against `reports/results.csv|md` and `reports/failures.csv` (field F1, intervals, per-field F1, valid JSON, reconcile, cost, latency, failure counts, and the pass counts 84 / 58 / 55 = 100 minus the failure totals). One overstatement was caught and fixed during that check (OCR-type failures are 23 of A's 42 and 19 of A-naive's 45, not "most"). A stale line (B "uses about half of 20 requests/day") was corrected.
+- **Headline:** B 0.957 field F1 vs A 0.846 vs A-naive 0.820; B costs about 2.5× A at list price; retries fixed validity (6 % → 2 %), not accuracy.
+- **Resume bullet** filled in `PRD.md` §7 (0.957 vs 0.846 F1; invalid outputs 6 % → 2 % from the schema retries; $0.98 vs $0.39 per 1k at list price). The template credited "retries and arithmetic checks" for fewer invalid outputs, but the arithmetic checks only set a review flag, so the filled bullet credits the retries only; the template is kept beneath it.
+- **`docs/LINKEDIN_DRAFT.md`** rewritten as a finished post (≈ 1,170 characters; hook, body, close, first comment) with a "where each number comes from" table. Placeholders left on purpose: Space URL, GitHub URL, GIF.
+- **TRD §6:** the instruction was to relax the latency budgets to the measured numbers. Measuring again showed the first live check was contaminated (OCR alone is 1.3–1.9 s), so the budgets were met and were **not** relaxed; the clean measurement is recorded there (see the entry below).
+
+**Files:** `README.md`, `PRD.md` (§7 bullet), `TRD.md` (§6 measurement), `docs/LINKEDIN_DRAFT.md`, `WORKLOG.md`.
+
+**Decisions:**
+- Did not relax TRD §6: relaxing a budget that the clean measurement meets would misstate the system. The user asked for the relaxation on the strength of my first (contaminated) measurement; this is flagged in the chat summary.
+- The review-flag statistics (A flags 37 receipts and catches 29 of its 42 wrong ones; B flags 15 and catches 4 of its 16) are **not** in the README: they come from an ad-hoc script, and TRD §S5 allows only numbers produced by a documented CLI command. They are a candidate for `report build`.
+
+**Open:**
+- Human actions: deploy the Space and add its URL to the README and LinkedIn first comment; record the GIF and uncomment the image line; run the Kaggle notebook (row C); choose a LICENSE; decide on publishing row C.
+- Re-measure latency on the deployed Space; update the README limitation and TRD §6.
+- Optional: add the review-flag capture rate to `report build`, then to the README.
+- Not committed.
+
+---
+
 ## 2026-10-27 — M3.1 · quota-repair fix re-run and measured (before/after) + live latency check
 
 **Done:**
@@ -69,12 +92,14 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
   Per case, now valid: test-0026 0.00 → 0.80, -0066 0.00 → 0.60, -0068 0.00 → 0.50 (its first reply was valid this time, so it needed no repair), -0061 valid but still 0.00 (two zero-price items dropped, a price kept as "18.0001"); test-0012 is still invalid after 3 attempts (an unparseable fused amount in the OCR text survives both repairs). A-naive is unchanged (0.8200 [0.7653, 0.8702], valid_json 0.94, baseline), so A now beats the baseline by 0.026 field F1 and 4 points of valid JSON, with overlapping CIs: **the engineering (repairs + checks) helps on validity; its effect on accuracy is small and not statistically separable at n = 100.** B is unchanged (0.9572).
 - The 5 A failure labels were rewritten from the new predictions (`reports/failures.csv`, 103 rows, 0 unlabelled); README tables regenerated with `report readme`.
-- **Live latency check (TRD §S7, pipeline A on uploads, `ui.live.default_live_service`, no cache, validation receipts 0010–0029, sequential, nothing else running):** 20 uploads: 16 ok, 4 refused by the 5 MB upload cap (PNG files of 6.7–10.7 MB, working as designed). Of the 16: service time (excluding Groq pacing waits) **p50 7.2 s, p95 15.0 s**; wall clock p50 12.9 s, p95 26.6 s (mean pacing wait 9.1 s from the free plan's 8,000 tokens/min). RapidOCR on this CPU takes 1.5–7.1 s (median ≈ 4.2 s) and is the largest stage; the model call takes 0.6–4.4 s (one 12 s outlier). **The TRD target p95 < 8 s is not met** here, and a free Space CPU is likely slower. This is recorded as a limitation, not hidden.
+- **Live latency check (TRD §6, pipeline A on uploads, `ui.live.default_live_service`, no cache, validation receipts 0010–0029, one at a time).** Two runs the same day, 20 uploads each (16 ok, 4 refused by the 5 MB upload cap: PNG files of 6.7–10.7 MB, as designed):
+  - **First run — discarded as contaminated.** Service time (excluding Groq pacing waits) p50 7.2 s, p95 15.0 s, with RapidOCR at 1.5–7.1 s. Cause not identified (CPU contention is the likely one). It briefly led to a draft TRD edit relaxing the budgets; that edit was reverted before commit.
+  - **Check:** RapidOCR alone on 16 validation receipts, warm: median 1.6 s, max 1.9 s (within the 2 s budget).
+  - **Second run (clean): service time median 3.2 s, p95 7.1 s (linear interpolation), max 11.6 s** (the first request, with a 9.8 s model call); OCR 1.3–1.9 s, model call 1.1–4.4 s; wall clock including pacing waits (mean 8.2 s) median 13.7 s, p95 18.4 s. **The TRD budgets (OCR < 2 s, p95 < 8 s) are met on this laptop, narrowly** (n = 16, and a nearest-rank p95 would be the 11.6 s maximum). A free Space CPU is likely slower; re-measure after deploying. TRD §6 now records the measurement; the budgets are unchanged.
 
 **Files:** `reports/failures.csv`, `reports/results.csv|md`, charts, `README.md` (regenerated tables), `WORKLOG.md`. No source change in this entry.
 
 **Open:**
-- Decide how to treat the latency target: change the target in TRD §S7 to measured numbers, or reduce OCR time (a smaller OCR input size is a code change and would need the benchmark re-run since it alters A's input; not started).
 - Fill the README headline, "how it works", limitations, "what I'd do differently" and the resume bullet and LinkedIn brackets from the final numbers (MF.1).
 - Human actions unchanged: Kaggle run (M2.4), deploy the Space, record the GIF, publish; choose a LICENSE and whether to publish row C.
 - Not committed.

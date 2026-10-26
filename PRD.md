@@ -86,9 +86,15 @@ comparing (one function, tested). Facts carried from the ideas doc (2026-10-22);
 - `reports/failures.csv` has ≥ 20 labelled failures grouped by cause (OCR misread, wrong item split, hallucinated item, number format, …).
 - Space live; its URL in the README.
 
-**Resume bullet:** Built a receipt-to-JSON pipeline comparing OCR+LLM and Gemini vision on CORD-v2;
-reached [X] field-level F1, with schema retries and arithmetic checks cutting invalid outputs from
-[A]% to [B]% at [cost] per 1k receipts.
+**Resume bullet (filled 2026-10-27 from `reports/results.md`, 100 held-out CORD-v2 receipts):**
+Built a receipt-to-JSON pipeline comparing OCR+LLM and Gemini vision on CORD-v2; the vision model
+reached 0.957 field-level F1 against 0.846 for OCR+LLM, with schema retries cutting invalid outputs
+from 6% to 2%, at $0.98 per 1k receipts (list price) against $0.39.
+
+_Template: Built a receipt-to-JSON pipeline comparing OCR+LLM and Gemini vision on CORD-v2; reached
+[X] field-level F1, with schema retries and arithmetic checks cutting invalid outputs from [A]% to
+[B]% at [cost] per 1k receipts. (The arithmetic checks set a review flag; they do not change the
+output, so the filled bullet credits the retries only.)_
 
 **Interview questions to prepare**
 - Why did the vision model beat (or lose to) OCR+LLM, and on which fields?

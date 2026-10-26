@@ -185,6 +185,22 @@ M2.2), `eval/oracle.py` (`gold` task).
 | RapidOCR per receipt (laptop CPU) | < 2 s |
 | Space, pipeline A end to end | p95 < 8 s |
 
+Measured on 2026-10-27, development laptop CPU, no cache, one upload at a time, 20 CORD validation
+receipts through `ui.live.default_live_service` (16 completed; 4 were refused by the 5 MB upload
+cap). Service time excludes the Groq free plan's pacing waits (§S5); the waits are reported, not
+counted:
+
+| Measure | Result | Budget |
+|---|---|---|
+| RapidOCR alone, 16 receipts | median 1.6 s, max 1.9 s | met |
+| Pipeline A service time | median 3.2 s, p95 7.1 s (linear interpolation), max 11.6 s | met, narrowly: n = 16, and the max is the first request (a 9.8 s model call) |
+| Wall clock including pacing | median 13.7 s, p95 18.4 s | not budgeted: 8,000 tokens/min on the free plan |
+
+An earlier run the same day gave OCR 1.5–7.1 s and p95 15.0 s while the machine was busy with
+something else (cause not identified, CPU contention is the likely one; the same OCR timed alone gave 1.3–1.9 s). It is discarded as
+contaminated. A free Space CPU is likely slower than this laptop, so the budgets must be
+re-measured after deployment.
+
 ## 7. Risks
 
 | Risk | Mitigation |

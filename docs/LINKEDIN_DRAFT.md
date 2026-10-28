@@ -38,7 +38,7 @@ When would you send a receipt to a person instead of trusting either one?
 
 ## First comment
 
-Live demo (upload a receipt, see the pipelines side by side): [Space URL, after you deploy]
+Demo (sample receipts, both pipelines side by side, and every failure): [Space URL, after you deploy]
 Code and the full results: [GitHub URL]
 
 ## Resume bullet

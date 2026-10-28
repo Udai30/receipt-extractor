@@ -44,3 +44,6 @@ Thumbs.db
 IMPLEMENTATION_PROMPTS.md
 PROMPT_PLAYBOOK.md
 
+
+# Static Space build output (receipt_extractor ui build-static)
+/site/

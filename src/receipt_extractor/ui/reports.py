@@ -129,9 +129,15 @@ def _headline(by_variant: dict[str, dict[str, str]]) -> str:
 
 
 def load_results(reports_dir: Path) -> ResultsView:
-    """The Results tab from ``reports/results.csv`` and the report charts."""
+    """The Results tab from ``reports/results.csv`` (test rows only) and the report charts.
+
+    ``results.csv`` also holds the small validation runs of the same variants; keying by variant
+    without the subset filter let those 10-receipt rows overwrite the 100-receipt test rows.
+    """
     rows = _read_csv(reports_dir / RESULTS_CSV)
-    by_variant = {row["variant"]: row for row in rows if row.get("variant")}
+    by_variant = {
+        row["variant"]: row for row in rows if row.get("variant") and row.get("subset") == "test"
+    }
     ordered = sorted(
         by_variant.values(),
         key=lambda r: (_ORDER.index(r["variant"]) if r["variant"] in _ORDER else 99, r["variant"]),

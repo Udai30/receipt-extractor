@@ -241,7 +241,7 @@ def test_oversized_temp_file_is_not_read_into_memory() -> None:
         check_upload(data)
 
 
-def test_space_requirements_keep_pillow_13_and_leave_gradio_to_the_space() -> None:
+def test_requirements_keep_pillow_13_and_the_space_card_is_static() -> None:
     root = Path(__file__).resolve().parents[3]
     lines = (root / "requirements.txt").read_text(encoding="utf-8").splitlines()
     pins = {
@@ -251,8 +251,6 @@ def test_space_requirements_keep_pillow_13_and_leave_gradio_to_the_space() -> No
     }
     assert pins["pillow"].startswith("pillow==13.")
     assert "gradio" not in pins and "gradio-client" not in pins  # installed from sdk_version
+    # The published Space is static (free); the Gradio app runs locally (WORKLOG 2026-10-28).
     front = (root / "space" / "README.md").read_text(encoding="utf-8").split("---")[1]
-    assert "sdk: gradio" in front and "app_file: app.py" in front
-    import gradio  # noqa: PLC0415
-
-    assert f"sdk_version: {gradio.__version__}" in front  # the Space runs the tested Gradio
+    assert "sdk: static" in front and "app_file: index.html" in front

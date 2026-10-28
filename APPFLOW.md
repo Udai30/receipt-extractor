@@ -21,10 +21,11 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · **APPFLOW.md** ·
 
 ### J1 — Recruiter
 Lands on the Space's **Results** tab → sees "Gemini vision: [X] F1 vs OCR+LLM [Y] at [Z]× the cost"
-→ opens **Try it**, clicks a sample receipt → both pipelines' JSON side by side with latency, cost and
+→ opens **Try it** (on the static Space: **Samples**), clicks a sample receipt → both pipelines' JSON side by side with latency, cost and
 a green "totals reconcile" badge.
 
 ### J2 — Visitor uploads their own receipt
+(Local Gradio app only since 2026-10-28: the public Space is static and has no upload.)
 Upload → pipeline A only (uploads never go to Gemini's free tier) → JSON + reconcile badge;
 B's column shows "Vision model runs on sample receipts only (privacy)".
 

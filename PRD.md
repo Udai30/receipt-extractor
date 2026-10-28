@@ -32,7 +32,7 @@ schema failure, an arithmetic check and a human-review flag.
 |---|---|
 | Recruiter / hiring manager | A results table that shows model choice by measurement, plus a demo they can click |
 | Engineer building document AI | A reusable schema + scorer + reconciliation pattern and honest cost numbers |
-| Demo visitor | Upload a receipt, see both pipelines' JSON side by side with latency and cost |
+| Demo visitor | Open a sample receipt, see both pipelines' JSON side by side with latency and cost (own uploads: the local Gradio app) |
 
 ## 3. Goals and non-goals
 
@@ -40,7 +40,7 @@ schema failure, an arithmetic check and a human-review flag.
 - G1. Two pipelines (A: OCR + LLM, B: vision LLM) producing the same `Receipt` schema; C (open VLM on Kaggle) as stretch.
 - G2. A field-level scorer and a fixed 100-receipt test run for every pipeline.
 - G3. Show what the engineering buys: naive A vs engineered A (retries + arithmetic check).
-- G4. A public Space and a README that opens with the results table.
+- G4. A public Space (static page, free; changed 2026-10-28) and a README that opens with the results table.
 
 **Non-goals**
 - Multi-page invoices, handwriting, languages other than CORD's.
@@ -76,7 +76,7 @@ comparing (one function, tested). Facts carried from the ideas doc (2026-10-22);
 | FR-5 | Retry on schema failure (≤ 2 tries) with the validation error sent back; arithmetic check; `needs_review` flag. |
 | FR-6 | Every model response cached to disk so re-running the eval costs nothing. |
 | FR-7 | Scorer with order-insensitive line-item matching; failure export; 20–30 failures grouped by cause. |
-| FR-8 | Gradio Space: Results tab, Try it (upload → A; sample receipts → A and B side by side), Failures tab. |
+| FR-8 | Gradio app: Results tab, Try it (upload → A; sample receipts → A and B side by side), Failures tab. Published as a **static** Hugging Face Space (Results, Samples with cached A/B, Failures; no live upload), because Gradio Spaces on free CPU now need PRO (changed 2026-10-28); the Gradio app with uploads runs locally. |
 | FR-9 (stretch) | Pipeline C: Qwen2.5-VL-3B on Kaggle, predictions imported into the same table. Also `C-local` (added 2026-10-22 on request): Qwen3-VL-4B-Instruct on the local CPU via Ollama, same table. |
 
 ## 7. Acceptance criteria (project level)

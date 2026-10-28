@@ -21,6 +21,11 @@ Project documentation: [PRD.md](PRD.md) · [TRD.md](TRD.md) · [APPFLOW.md](APPF
 
 Gradio tabs: **Results** (default) · **Try it** · **Failures** · **About**.
 
+Published Space (static, since 2026-10-28): one page with sections **Results** · **Samples** ·
+**Failures**, same headline, tables, charts, badges (with text) and theme tokens, light and dark;
+samples are collapsible (image | A | B, gold label, OCR text, raw JSON); the failure filter is a
+small script, and without it the full table shows. No upload.
+
 ## 2. Screen specs
 
 ### 2.1 Results

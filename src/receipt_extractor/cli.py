@@ -402,6 +402,26 @@ def ui_build_showcase(
     typer.echo(f"wrote {len(showcase.cases)} sample(s) to {SHOWCASE_DIR}")
 
 
+@ui_app.command("build-static")
+def ui_build_static(
+    out_dir: Annotated[
+        Path, typer.Option("--out", help="Folder to write (uploaded as the Static Space root).")
+    ] = Path("site"),
+) -> None:
+    """Render Results, samples and Failures into a static page for a free Static Space."""
+    from receipt_extractor.ui.static_site import build_static_site  # noqa: PLC0415
+
+    root = Path.cwd()
+    try:
+        written = build_static_site(
+            root / "reports", out_dir, space_readme=root / "space" / "README.md"
+        )
+    except (OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(f"wrote {len(written)} file(s) to {out_dir.as_posix()}")
+
+
 def _version_callback(value: bool) -> None:
     if value:
         typer.echo(__version__)

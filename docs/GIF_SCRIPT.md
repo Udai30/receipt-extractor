@@ -6,7 +6,8 @@ shows the real numbers.
 
 ## Setup
 
-- Run the local app (`uv run python app.py`) or the deployed Space, at desktop width (~1,200 px).
+- Run the local Gradio app (`uv run python app.py`), at desktop width (~1,200 px). The shots below
+  follow its tabs; the deployed Space is a static page (Results · Samples · Failures, no upload).
 - Use a **public CORD sample receipt** from the Try it tab. Do not record a personal receipt.
 - Close other tabs and notifications. Light theme. Zoom the browser to 110 %.
 - Tools: ScreenToGif (Windows) or any recorder; export 12–15 fps, loop forever.

@@ -32,9 +32,35 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | (2026-10-27) M2.3 done; M3.1 done (A: 0.8274 → 0.8464 after the quota-repair fix); next MF.1 write-up · earlier: M2.3 in progress: **A-naive done** (field_f1 0.820 [0.765, 0.870]); A 23/100 (77 error rows to retry), B 16/100 — day-2 job resumes both from 00:05 UTC 2026-10-24 · M3.2 done locally (deploy = human action) · M2.1, M2.2 done · M2.4 waiting for the human's Kaggle run · next: M3.1 when M2.3 completes |
-| Last verified gate run | 2026-10-23 (M2.3 quota fix): ruff check + format, mypy, pytest 600 passed / 9 skipped (8 live, 1 symlink), pip-audit — all green |
-| Pending human actions | Deploy the Space (`docs/DEPLOY.md`); run `notebooks/qwen_vl_cord.ipynb` on Kaggle and import it (M2.4); confirm `gemini-3.5-flash-lite` free-tier RPD in AI Studio; decide on a C-local test row, on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
+| Current task | (2026-10-28) M3.2 revised: the public demo is a **Static** Space (Gradio Spaces need PRO); page built by `ui build-static`, deploy = human action · M0–M3.1 and MF.1 done and committed · M2.4 waiting for the human's Kaggle run |
+| Last verified gate run | 2026-10-28 (static Space): ruff check + format, mypy, pytest 612 passed / 9 skipped (8 live, 1 symlink) — all green; pip-audit not re-run (no dependency change) |
+| Pending human actions | Deploy the Static Space (`docs/DEPLOY.md`) and send the URL; record the GIF; run `notebooks/qwen_vl_cord.ipynb` on Kaggle (M2.4); decide on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
+
+---
+
+## 2026-10-28 — M3.2 · Public demo becomes a Static Space (Gradio Spaces need PRO)
+
+**Done:**
+- **Why:** the human ran `hf repos create … --type space --sdk gradio`; Hugging Face answered `402 Payment Required` ("hosting Gradio and Docker Spaces on free cpu-basic requires a PRO subscription"; Static Spaces stay free). The project is free-tier only (CLAUDE.md §4), so the human chose (chat, 2026-10-28) option 1 of four: a static page on a free Static Space; live upload stays in the local Gradio app.
+- **`ui/static_site.py` + `receipt_extractor ui build-static [--out site]`:** writes `site/index.html` (inline CSS, light/dark, no external requests; small progressive filter script), `site/README.md` (the Space card) and `site/assets/` (both report charts, six sample images). It reuses `load_results`, `load_failures`, `load_showcase` and `column_view`, so every number is the one the Gradio app shows; all text is HTML-escaped. Sections: Results (table, note, charts) · Samples (image | A | B, gold label, OCR text, raw JSON, run ids) · Failures (counts by cause × pipeline, filterable table of 103 rows).
+- **Bug fixed (affects the Gradio app too):** `ui.reports.load_results` keyed rows by variant without filtering the subset, so the 10-receipt **validation** rows (written after the test rows in `reports/results.csv`) replaced the 100-receipt **test** rows: the Results tab showed n = 10 and the headline "0.95 vs 0.94 at 2.2x". It now takes `subset == "test"` (as `eval/readme.py` already did); headline now "Gemini vision: 0.96 field F1 vs OCR + LLM 0.85 at 2.5x the cost". Regression test `test_results_ignore_validation_rows_of_the_same_variant`. C-local (validation only) no longer appears in the app's Results table, matching the README.
+- `space/README.md`: `sdk: static`, `app_file: index.html`, copy updated. `.gitignore`: `/site/`. `.claude/launch.json`: `static-site` preview (http.server on 127.0.0.1:8765).
+- **Tests:** `tests/unit/ui/test_static_site.py` (3: build writes page, card and images and escapes notes; failure summary counts; empty states and no external `src`/`href`). `test_live.py` Space-card test now asserts the static card (renamed `test_requirements_keep_pillow_13_and_the_space_card_is_static`; the Pillow 13 / no-Gradio pins in `requirements.txt` are still checked). Gates: ruff check + format, mypy (59 files), pytest **612 passed, 9 skipped**.
+- **Verified in the browser** (built page served over http): headline and test-row table correct; 8/8 images load; 6 samples; failure filter works (hallucinated_item 17, of which B 6; total 103); summary A 42 / A-naive 45 / B 16; no console errors; no horizontal overflow at phone width; three-column sample layout at 1,280 px.
+- **Docs:** `docs/DEPLOY.md` rewritten (build → `hf repos create … --sdk static` → one `hf upload … site .`; Gradio steps kept as a PRO-only appendix); PRD G4, FR-8, users table; TRD stack table and §S7 note; APPFLOW J1/J2; UI_UX_DESIGN §1; README (diagram, limitation, demo section); LinkedIn first comment (no "upload a receipt"); GIF script setup.
+
+**Files:** `src/receipt_extractor/ui/static_site.py` (new), `src/receipt_extractor/ui/reports.py`, `src/receipt_extractor/cli.py`, `tests/unit/ui/test_static_site.py` (new), `tests/unit/ui/test_live.py`, `tests/unit/ui/test_views_and_reports.py`, `space/README.md`, `.gitignore`, `.claude/launch.json`, `docs/DEPLOY.md`, `docs/GIF_SCRIPT.md`, `docs/LINKEDIN_DRAFT.md`, `PRD.md`, `TRD.md`, `APPFLOW.md`, `UI_UX_DESIGN.md`, `README.md`, `WORKLOG.md`.
+
+**Decisions:**
+- Static page generated in Python from the existing view-models rather than Gradio-Lite: Gradio-Lite cannot run RapidOCR, and calling Groq from the browser would expose the key. No live path means no secrets on the Space.
+- `site/` is build output and git-ignored; the Space is rebuilt from committed `reports/` and the showcase.
+- `requirements.txt` and `app.py` stay (local app; the PRO appendix in DEPLOY.md).
+- The TRD §6 latency budget for "Space, pipeline A end to end" no longer has a hosted target; it stands for the local app (measured 2026-10-27).
+
+**Open:**
+- Human action: `uv run hf repos create <user>/receipt-extractor --type space --sdk static`, then `uv run hf upload <user>/receipt-extractor site . --type space` (DEPLOY.md §2–3); send the URL for the README and LinkedIn first comment.
+- The pending "re-measure latency on the deployed Space" item is dropped (the Space runs no model).
+- Committed on `test`.
 
 ---
 
@@ -48,7 +74,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 **Open:**
 - A (`A-e8c045ee22e6`) still has error rows to retry (Groq daily quota); then `report build`.
-- Not committed.
+- Committed on `test`.
 
 ---
 
@@ -71,7 +97,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 - Human actions: deploy the Space and add its URL to the README and LinkedIn first comment; record the GIF and uncomment the image line; run the Kaggle notebook (row C); choose a LICENSE; decide on publishing row C.
 - Re-measure latency on the deployed Space; update the README limitation and TRD §6.
 - Optional: add the review-flag capture rate to `report build`, then to the README.
-- Not committed.
+- Committed on `test`.
 
 ---
 
@@ -102,7 +128,7 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 **Open:**
 - Fill the README headline, "how it works", limitations, "what I'd do differently" and the resume bullet and LinkedIn brackets from the final numbers (MF.1).
 - Human actions unchanged: Kaggle run (M2.4), deploy the Space, record the GIF, publish; choose a LICENSE and whether to publish row C.
-- Not committed.
+- Committed on `test`.
 
 ---
 

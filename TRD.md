@@ -224,7 +224,7 @@ re-measured after deployment.
 | Scoring | `scipy` (`linear_sum_assignment`, Hungarian item matching) + `rapidfuzz` (item-name similarity) |
 | OCR | `rapidocr` 3 + `onnxruntime` (CPU; det/rec models ship in the wheel, no runtime download); Pillow decodes images |
 | Results | Files: `runs/<run_id>/*.jsonl|json` → `reports/*.csv|md|png` (committed). **No database.** |
-| UI | Gradio 6 `Blocks` in `app.py` → Hugging Face Space (Gradio SDK, free CPU); Gradio 6.30 with Pillow 13 kept over its `<13` cap (M3.2, see §S7) |
+| UI | Gradio 6 `Blocks` in `app.py`, run locally; Gradio 6.30 with Pillow 13 kept over its `<13` cap (M3.2, see §S7). Published as a **Static** Hugging Face Space built by `ui build-static` (Gradio Spaces on free CPU need PRO since 2026; changed 2026-10-28) |
 | GPU work | Kaggle notebooks under `notebooks/`, versions pinned, run by the human; outputs imported by a CLI command |
 | Testing | pytest, pytest-asyncio, `respx` for HTTP mocking, `FakeProvider` for LLM calls; coverage ≥ 80 % on `src/<pkg>/core` |
 | Quality | `ruff` (lint + format), `mypy --strict` on `src/`, `pip-audit` |
@@ -362,6 +362,13 @@ rename the package.
   are Space secrets set by the human.
 
 ## S7. Public demo hardening (Gradio Space)
+
+**Changed 2026-10-28:** creating a Gradio Space on free CPU returned `402 Payment Required`
+(Hugging Face now requires PRO for Gradio/Docker Spaces on `cpu-basic`). The published demo is a
+**Static** Space: `ui/static_site.py` (`receipt_extractor ui build-static` → `site/`) renders
+Results, the six samples with cached A/B results, and Failures from the same `reports/` files and
+view-models as the Gradio app; it runs no model, holds no secrets and has no upload. The rules
+below apply to the Gradio app (local, or a Gradio Space if one is ever hosted on PRO).
 
 - `demo.queue(default_concurrency_limit=2, max_size=20)`; input caps (text ≤ 2,000 chars, images
   ≤ 5 MB and ≤ 4,096 px per side) validated server-side, not only in the component.

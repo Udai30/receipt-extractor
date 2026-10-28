@@ -220,6 +220,13 @@ def test_results_headline_and_table_come_from_the_csv(tmp_path: Path) -> None:
     assert "free-tier rate limits" in view.note and view.charts == []
 
 
+def test_results_ignore_validation_rows_of_the_same_variant(tmp_path: Path) -> None:
+    validation = {**row("A", "0.99", "0.3"), "subset": "validation", "sample_size": "10"}
+    write_results(tmp_path, [row("A", "0.88", "0.3"), validation])
+    ((first, f1, *_, n),) = load_results(tmp_path).rows
+    assert first.startswith("A ") and f1.startswith("0.880") and n == "100"
+
+
 def test_results_in_progress_and_empty_states(tmp_path: Path) -> None:
     write_results(tmp_path, [row("A", "0.88", "0.3")])
     assert load_results(tmp_path).headline.startswith("Benchmark in progress")

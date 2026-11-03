@@ -1,8 +1,8 @@
 # LinkedIn draft (about the finding, not the build)
 
 **Status: written from measured numbers (2026-10-27, `reports/results.md` and `reports/failures.csv`).**
-Placeholders left for you: the Space URL and the GitHub URL (first comment) and the GIF. The post
-should not go out before the Space is live. The link goes in the **first comment**, not the body.
+Placeholders left for you: the GitHub URL (first comment) and the GIF. The Space is live
+(2026-10-28): https://huggingface.co/spaces/udai30/receipt-extractor. The link goes in the **first comment**, not the body.
 
 ## Hook (first two lines, before the "see more" fold)
 
@@ -38,7 +38,7 @@ When would you send a receipt to a person instead of trusting either one?
 
 ## First comment
 
-Demo (sample receipts, both pipelines side by side, and every failure): [Space URL, after you deploy]
+Demo (sample receipts, both pipelines side by side, and every failure): https://huggingface.co/spaces/udai30/receipt-extractor
 Code and the full results: [GitHub URL]
 
 ## Resume bullet
@@ -60,7 +60,7 @@ from 6% to 2%, at $0.98 per 1k receipts (list price) against $0.39.
 
 ## Checklist before posting
 
-- [ ] The Space is deployed and the link works.
+- [x] The Space is deployed and the link works (checked 2026-10-28).
 - [ ] The GIF (`docs/demo.gif`) is recorded and attached.
 - [ ] No screenshot shows keys, paths or personal receipts.
 - [ ] The numbers still match `reports/results.md` if any run was repeated after 2026-10-27.

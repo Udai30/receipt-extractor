@@ -32,9 +32,25 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | (2026-10-28) M3.2 revised: the public demo is a **Static** Space (Gradio Spaces need PRO); page built by `ui build-static`, deploy = human action · M0–M3.1 and MF.1 done and committed · M2.4 waiting for the human's Kaggle run |
+| Current task | (2026-10-28) **Static Space live: https://huggingface.co/spaces/udai30/receipt-extractor** (checked) · M0–M3.2 and MF.1 done · M2.4 waiting for the human's Kaggle run |
 | Last verified gate run | 2026-10-28 (static Space): ruff check + format, mypy, pytest 612 passed / 9 skipped (8 live, 1 symlink) — all green; pip-audit not re-run (no dependency change) |
-| Pending human actions | Deploy the Static Space (`docs/DEPLOY.md`) and send the URL; record the GIF; run `notebooks/qwen_vl_cord.ipynb` on Kaggle (M2.4); decide on publishing row C (Qwen Research licence) and on a LICENSE; delete the v1 DB lines from `.env` |
+| Pending human actions | Record the GIF; choose a LICENSE; GitHub URL in the LinkedIn first comment, then post; merge `test` → `main`; run `notebooks/qwen_vl_cord.ipynb` on Kaggle (M2.4) and decide on publishing row C; delete the v1 DB lines from `.env` |
+
+---
+
+## 2026-10-28 — M3.2 · Static Space deployed and checked
+
+**Done:**
+- The human created the Static Space and uploaded `site/` (DEPLOY.md §2–3): **https://huggingface.co/spaces/udai30/receipt-extractor** (app: `https://udai30-receipt-extractor.static.hf.space`).
+- Checked in the browser on the live app: headline "Gemini vision: 0.96 field F1 vs OCR + LLM 0.85 at 2.5x the cost (CORD-v2 test)"; Results rows A-naive / A / B / gold with n = 100, matching `reports/results.csv` test rows; 8/8 images load; 6 samples; 103 failure rows, filter works (hallucinated_item → 17); no console errors.
+- URL added to the README (under the headline) and the LinkedIn first comment (checklist item ticked). README limitations: "Space not deployed" removed; the latency note no longer asks for a re-measure after deployment (the Space runs no model).
+- PRD §7 acceptance "Space live; its URL in the README" is met.
+
+**Files:** `README.md`, `docs/LINKEDIN_DRAFT.md`, `WORKLOG.md`.
+
+**Open:**
+- Human actions: GIF, LICENSE, GitHub URL in the LinkedIn first comment, post; merge `test` → `main`; Kaggle run (M2.4).
+- Agent: verify the README reproduce commands from a clean clone (MF.1 "Done when").
 
 ---
 

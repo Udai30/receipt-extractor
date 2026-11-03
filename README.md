@@ -197,7 +197,11 @@ uv run receipt_extractor report failures                                 # → r
 uv run receipt_extractor report readme                                   # fills the README's results and failure tables
 ```
 
-`configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call.
+`runs/` and `data/` are not in the repository, so in a fresh clone `report build` and `report readme`
+rebuild `reports/` and the README tables from whatever runs exist locally, replacing the committed
+results; run the benchmark configs first (or leave the committed `reports/` alone).
+`configs/runs/toy.yaml` exercises the whole loop on 20 synthetic cases without any model call
+(one case, `toy-00007`, fails on purpose to show an error row).
 `configs/runs/a-naive-val10.yaml` and `configs/runs/a-val10.yaml` run pipeline A (RapidOCR on the
 CPU → Groq `gpt-oss-20b`, naive vs engineered) on 10 validation receipts; they need
 `GROQ_API_KEY`, and model replies are cached under `.cache/llm/`, so a re-run is free.
@@ -210,7 +214,7 @@ other input before decoding it, and the `public_only` model alias refuses it aga
 and `ollama pull qwen3-vl:4b-instruct` — the instruct build, not the bare `qwen3-vl:4b` tag
 (that one is the thinking build and returns receipts without items).
 Pipeline C (Qwen2.5-VL-3B) runs on a Kaggle T4: `notebooks/qwen_vl_cord.ipynb` is generated from
-this repository (`uv run python -m receipt_extractor.pipelines.qwen_notebook`); its output goes into
+this repository (`uv run python -m receipt_extractor.pipelines.qwen_notebook`, after `data prepare`); its output goes into
 `data/imports/qwen_vl/` and `uv run receipt_extractor eval import-predictions data/imports/qwen_vl`
 turns it into a scored run.
 `configs/runs/gold.yaml` scores the CORD test gold against itself (the scorer's calibration: every

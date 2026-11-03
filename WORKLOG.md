@@ -32,9 +32,26 @@ Format: **newest first**, one entry per task session (see CLAUDE.md §7).
 
 | Item | Value |
 |---|---|
-| Current task | (2026-10-28) **Static Space live: https://huggingface.co/spaces/udai30/receipt-extractor** (checked) · M0–M3.2 and MF.1 done · M2.4 waiting for the human's Kaggle run |
+| Current task | (2026-10-28) **Static Space live: https://huggingface.co/spaces/udai30/receipt-extractor** (checked) · M0–M3.2 and MF.1 done · (2026-11-03) README reproduce commands checked from a clean copy · M2.4 waiting for the human's Kaggle run |
 | Last verified gate run | 2026-10-28 (static Space): ruff check + format, mypy, pytest 612 passed / 9 skipped (8 live, 1 symlink) — all green; pip-audit not re-run (no dependency change) |
 | Pending human actions | Record the GIF; choose a LICENSE; GitHub URL in the LinkedIn first comment, then post; merge `test` → `main`; run `notebooks/qwen_vl_cord.ipynb` on Kaggle (M2.4) and decide on publishing row C; delete the v1 DB lines from `.env` |
+
+---
+
+## 2026-11-03 — MF.1 · README reproduce commands checked from a clean copy
+
+**Done:**
+- Clean copy of `HEAD` (`63fd7a0`, committed files only: no `.venv`, `.env`, `data/`, `runs/`, caches) exported with `git archive` into the agent's scratch folder (not a `git clone`: CLAUDE.md §1 does not list clone).
+- **Worked as written:** `uv sync` (fresh `.venv` from `uv.lock`); `Copy-Item .env.example .env`; `receipt_extractor --help`; `ruff check .` (clean); `mypy src` (59 files, clean); `eval run --config configs/runs/toy.yaml` (20/20, exact_match 0.75, one error row by design); `report build`; `report failures`; `ui build-static`.
+- `pytest -q` in the copy: 610 passed, 10 skipped, **1 failed**: `test_upload_outside_temp_dirs_is_refused`. Cause: the copy sat inside `%TEMP%`, so the test file was a valid upload location (the guard behaved correctly). Not a repo defect; the test now skips when the checkout is inside the temp dir (UI tests: 48 passed + 1 skipped in the copy, 49 passed in the repo; ruff clean).
+- **README gaps found and fixed:** (1) in a fresh clone `report build` / `report readme` replace the committed `reports/` and README tables with whatever local runs exist (the copy's `results.csv` became a single toy row) — now stated; (2) the Qwen notebook generator needs `data prepare` first (it raised `FileNotFoundError` on `data/cord/manifest.json`) — now stated; (3) the toy run's deliberate error case is now mentioned.
+- **Not run in the copy:** `data prepare` (≈ 480 MB download), `llm ping` and real benchmark runs (need keys and free-tier quota), `uv run python app.py` (the app build is covered by the `gradio_client` smoke tests, which passed). `data stats` without data gives the intended "run data prepare first" error.
+
+**Files:** `README.md`, `tests/unit/ui/test_live.py`, `WORKLOG.md`.
+
+**Decisions:** documented the `report build` overwrite rather than changing the command: rebuilding from local runs is its purpose.
+
+**Open:** MF.1 "Done when" is met apart from the GIF (human). Committed on `test`.
 
 ---
 

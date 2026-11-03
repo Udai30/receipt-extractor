@@ -224,6 +224,10 @@ def test_upload_temp_file_is_read_then_deleted() -> None:
     assert not path.exists()
 
 
+@pytest.mark.skipif(
+    Path(__file__).resolve().is_relative_to(Path(tempfile.gettempdir()).resolve()),
+    reason="checkout is inside the temp dir, so this file is a valid upload location",
+)
 def test_upload_outside_temp_dirs_is_refused(tmp_path: Path) -> None:
     outside = Path(__file__)
     with pytest.raises(ValueError, match="unexpected upload location"):
